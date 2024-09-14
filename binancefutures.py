@@ -8,7 +8,7 @@ def get_futures_pairs():
         data = response.json()
 
         futures_pairs = [f"Binance:{symbol['symbol']}.p" for symbol in data['symbols'] 
-                              if symbol.get('status') == "TRADING" and symbol.get('contractType') == 'PERPETUAL']
+                              if symbol.get('status') == "TRADING" and symbol.get('contractType') == 'PERPETUAL' and symbol.get('quoteAsset') == 'USDT']
         return futures_pairs
 
     except requests.exceptions.RequestException as e:
