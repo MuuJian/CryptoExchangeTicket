@@ -1,0 +1,2 @@
+# CryptoExchangeTicket
+Tradingview watchlist
