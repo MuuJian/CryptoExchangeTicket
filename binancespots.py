@@ -28,3 +28,4 @@ if usdt_pairs:
     print("USDT pairs have been written to usdt_pairs.txt")
 else:
     print("No USDT pairs found or an error occurred.")
+    

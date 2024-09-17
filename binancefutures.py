@@ -24,3 +24,4 @@ if futures_pairs:
     print("futures pairs have been written to binance_futures.txt")
 else:
     print("No futures pairs found or an error occurred.")
+    

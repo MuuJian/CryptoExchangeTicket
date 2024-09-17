@@ -25,3 +25,4 @@ if linear_futures:
     print("futures pairs have been written to bybit_futures_pairs.txt")
 else:
     print("No futures pairs found or an error occurred.")
+    

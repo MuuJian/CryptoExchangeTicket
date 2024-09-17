@@ -281,3 +281,6 @@ Binance:NEIROETHUSDT.p
 Binance:RPLUSDT.p
 Binance:AERGOUSDT.p
 Binance:POLUSDT.p
+Binance:UXLINKUSDT.p
+Binance:1MBABYDOGEUSDT.p
+Binance:NEIROUSDT.p
