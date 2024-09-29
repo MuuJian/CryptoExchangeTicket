@@ -22,7 +22,7 @@ def get_spot_pairs():
 
 usdt_pairs = get_spot_pairs()
 if usdt_pairs:
-    with open('binance_usdt_pairs.txt', 'w') as file:
+    with open('ticket/binance_usdt_pairs.txt', 'w') as file:
         for pair in usdt_pairs:
             file.write(pair + '\n')
     print("USDT pairs have been written to usdt_pairs.txt")

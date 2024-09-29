@@ -284,3 +284,11 @@ Binance:POLUSDT.p
 Binance:UXLINKUSDT.p
 Binance:1MBABYDOGEUSDT.p
 Binance:NEIROUSDT.p
+Binance:KDAUSDT.p
+Binance:FIDAUSDT.p
+Binance:FIOUSDT.p
+Binance:CATIUSDT.p
+Binance:GHSTUSDT.p
+Binance:LOKAUSDT.p
+Binance:HMSTRUSDT.p
+Binance:REIUSDT.p

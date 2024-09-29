@@ -18,7 +18,7 @@ def get_futures_pairs():
 
 futures_pairs = get_futures_pairs()
 if futures_pairs:
-    with open('binance_futures_pairs.txt', 'w') as file:
+    with open('ticket/binance_futures_pairs.txt', 'w') as file:
         for pair in futures_pairs:
             file.write(pair + '\n')
     print("futures pairs have been written to binance_futures.txt")

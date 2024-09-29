@@ -19,7 +19,7 @@ def get_linear_futures_symbols():
 
 linear_futures = get_linear_futures_symbols()
 if linear_futures:
-    with open('bybit_futures_pairs.txt', 'w') as file:
+    with open('ticket/bybit_futures_pairs.txt', 'w') as file:
         for pair in linear_futures:
             file.write(pair + '\n')
     print("futures pairs have been written to bybit_futures_pairs.txt")
