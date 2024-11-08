@@ -1,27 +1,26 @@
 import requests
 
-def get_futures_pairs():
-    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+def GetFuturesPairs():
+    Url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
+        Response = requests.get(Url)
+        Response.raise_for_status()
+        Data = Response.json()
 
-        futures_pairs = [f"Binance:{symbol['symbol']}.p" for symbol in data['symbols'] 
-                              if symbol.get('status') == "TRADING" and symbol.get('contractType') == 'PERPETUAL' and symbol.get('quoteAsset') == 'USDT']
-        return futures_pairs
+        FuturesPairs = [f"Binance:{Symbol['symbol']}.p" for Symbol in Data['symbols'] 
+                        if Symbol.get('status') == "TRADING" and Symbol.get('contractType') == 'PERPETUAL' and Symbol.get('quoteAsset') == 'USDT']
+        return FuturesPairs
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    except requests.exceptions.RequestException as E:
+        print(f"Request failed: {E}")
+    except Exception as E:
+        print(f"An error occurred: {E}")
 
-futures_pairs = get_futures_pairs()
-if futures_pairs:
-    with open('ticket/binance_futures_pairs.txt', 'w') as file:
-        for pair in futures_pairs:
-            file.write(pair + '\n')
-    print("futures pairs have been written to binance_futures.txt")
+FuturesPairs = GetFuturesPairs()
+if FuturesPairs:
+    with open('ticket/binance_futures_pairs.txt', 'w') as File:
+        for Pair in FuturesPairs:
+            File.write(Pair + '\n')
+    print("Futures pairs have been written to binance_futures_pairs.txt")
 else:
     print("No futures pairs found or an error occurred.")
-    

@@ -1,28 +1,23 @@
-import requests
+from pybit.unified_trading import HTTP
 
-def get_linear_futures_symbols():
-    url = "https://api.bybit.com/v2/public/symbols"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        
-        # 过滤线性期货交易对
-        linear_futures = [f"Bybit:{symbol['name']}.p" for symbol in data['result'] 
-                          if symbol['quote_currency'] in ['USDT']]
-        return linear_futures
+# 创建 HTTP 会话
+Session = HTTP(testnet=False)
 
-    except requests.exceptions.RequestException as e:
-        print(f"Request failed: {e}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-linear_futures = get_linear_futures_symbols()
-if linear_futures:
-    with open('ticket/bybit_futures_pairs.txt', 'w') as file:
-        for pair in linear_futures:
-            file.write(pair + '\n')
-    print("futures pairs have been written to bybit_futures_pairs.txt")
-else:
-    print("No futures pairs found or an error occurred.")
+try:
+    # 获取线性期货的交易对信息
+    Ticket = Session.get_instruments_info(category="linear")['result']['list']
     
+    # 过滤出以 USDT 为报价货币的交易对
+    FuturePairs = [f"Bybit:{Symbols['symbol']}.p" for Symbols in Ticket if Symbols['quoteCoin'] == 'USDT']
+
+    # 检查是否找到了交易对并写入文件
+    if FuturePairs:
+        with open('ticket/bybit_future_pairs.txt', 'w') as File:
+            for Pair in FuturePairs:
+                File.write(Pair + '\n')
+        print("Futures pairs have been written to bybit_future_pairs.txt")
+    else:
+        print("No futures pairs found.")
+        
+except Exception as E:
+    print(f"An error occurred: {E}")
