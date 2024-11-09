@@ -1,9 +1,14 @@
 from pybit.unified_trading import HTTP
 
-Session = HTTP(testnet=False)
-Ticket = Session.get_instruments_info(category="spot")['result']['list']
-UsdtPairs = [f"Bybit:{Symbols['symbol']}" for Symbols in Ticket if Symbols['quoteCoin'] == 'USDT']
+def GetSpotPairs():
+    Session = HTTP(testnet=False)
 
+    Ticket = Session.get_instruments_info(category="spot")['result']['list']
+    UsdtPairs = [f"Bybit:{Symbols['symbol']}" for Symbols in Ticket if Symbols['quoteCoin'] == 'USDT']
+    return UsdtPairs
+
+
+UsdtPairs = GetSpotPairs()
 if UsdtPairs:
     with open('ticket/bybit_spot_pairs.txt', 'w') as File:
         for Pair in UsdtPairs:
