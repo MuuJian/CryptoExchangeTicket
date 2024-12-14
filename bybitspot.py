@@ -4,7 +4,10 @@ def GetSpotPairs():
     Session = HTTP(testnet=False)
 
     Ticket = Session.get_instruments_info(category="spot")['result']['list']
-    UsdtPairs = [f"Bybit:{Symbols['symbol']}" for Symbols in Ticket if Symbols['quoteCoin'] == 'USDT']
+
+    UsdtPairs = [f"Bybit:{Symbols['symbol']}" for Symbols in Ticket 
+                 if Symbols['quoteCoin'] == 'USDT']
+    
     return UsdtPairs
 
 

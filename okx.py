@@ -8,7 +8,10 @@ def GetSpotPairs():
 
     Response = requests.get(Url, params=Params)
     Data = Response.json()['data']
-    Tickets = [f"okx:{Symbols['baseCcy']}{Symbols['quoteCcy']}" for Symbols in Data if Symbols['quoteCcy'] == 'USDT']
+    
+    Tickets = [f"okx:{Symbols['baseCcy']}{Symbols['quoteCcy']}" for Symbols in Data 
+               if Symbols['quoteCcy'] == 'USDT']
+    
     return Tickets
 
 UsdtPairs = GetSpotPairs()

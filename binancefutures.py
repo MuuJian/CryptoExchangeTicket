@@ -6,8 +6,8 @@ def GetFuturesPairs():
     Response = requests.get(Url)
     Data = Response.json()
 
-    FuturesPairs = [f"Binance:{Symbol['symbol']}.p" for Symbol in Data['symbols'] 
-                    if Symbol.get('status') == "TRADING" and Symbol.get('contractType') == 'PERPETUAL' and Symbol.get('quoteAsset') == 'USDT']
+    FuturesPairs = [f"Binance:{Symbols['symbol']}.p" for Symbols in Data['symbols'] 
+                    if Symbols.get('status') == "TRADING" and Symbols.get('contractType') == 'PERPETUAL' and Symbols.get('quoteAsset') == 'USDT']
     return FuturesPairs
 
 FuturesPairs = GetFuturesPairs()
