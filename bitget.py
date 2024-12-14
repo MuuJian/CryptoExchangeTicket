@@ -6,8 +6,8 @@ def GetSpotPairs():
     Response = requests.get(Url)
     Data = Response.json()
 
-    Instruments = [f"Bitget:{Symbols['symbolName']}" for Symbols in Data['data']
-                    if Symbols.get('quoteCoin') == 'USDT']
+    Instruments = [f"Bitget:{Symbols['symbolDisplayName']}" for Symbols in Data['data']
+                    if Symbols.get('quoteCoin') == 'USDT' and Symbols.get('status') == 'online']
     
     return Instruments
 
