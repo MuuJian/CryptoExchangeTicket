@@ -1,14 +1,13 @@
-import requests
+from pybit.unified_trading import HTTP
 
 def GetSpotPairs():
-    Url = "https://api.bitget.com/api/spot/v1/public/products"  # Bitget 现货交易对列表 API
+    Session = HTTP(testnet=False)
 
-    Response = requests.get(Url)
-    Data = Response.json()
-
-    Instruments = [f"Bitget:{Symbols['symbolDisplayName']}" for Symbols in Data['data']
-                    if Symbols.get('quoteCoin') == 'USDT' and Symbols.get('status') == 'online']
+    Ticket = Session.get_instruments_info(category="spot")['result']['list']
     
+    Instruments = [f"Bybit:{Symbols['symbol']}" for Symbols in Ticket
+                if Symbols.get('quoteCoin') == 'USDT' and Symbols.get('status') == 'Trading']
+                    
     return Instruments
 
 

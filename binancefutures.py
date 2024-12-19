@@ -8,6 +8,7 @@ def GetFuturesPairs():
 
     FuturesPairs = [f"Binance:{Symbols['symbol']}.p" for Symbols in Data['symbols'] 
                     if Symbols.get('status') == "TRADING" and Symbols.get('contractType') == 'PERPETUAL' and Symbols.get('quoteAsset') == 'USDT']
+    
     return FuturesPairs
 
 FuturesPairs = GetFuturesPairs()

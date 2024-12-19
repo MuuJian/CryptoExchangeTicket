@@ -4,8 +4,10 @@ def GetFuturesPairs():
     Session = HTTP(testnet=False)
 
     Ticket = Session.get_instruments_info(category="linear")['result']['list']
+    
     FuturePairs = [f"Bybit:{Symbols['symbol']}.p" for Symbols in Ticket
                     if Symbols['quoteCoin'] == 'USDT']
+    
     return FuturePairs
 
 

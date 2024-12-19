@@ -8,6 +8,7 @@ def GetSpotPairs():
 
     UsdtPairs = [f"Binance:{Symbols['symbol']}" for Symbols in Data['symbols'] 
                 if Symbols.get('quoteAsset') == 'USDT' and Symbols.get('status') == 'TRADING']
+    
     return UsdtPairs
 
 
