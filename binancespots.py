@@ -9,14 +9,17 @@ def GetSpotPairs():
     UsdtPairs = [f"Binance:{Symbols['symbol']}" for Symbols in Data['symbols'] 
                 if Symbols.get('quoteAsset') == 'USDT' and Symbols.get('status') == 'TRADING']
     
-    return UsdtPairs
+    if UsdtPairs:
+        with open('ticket/binance_usdt_pairs.txt', 'w') as File:
+            for Pair in UsdtPairs:
+                File.write(Pair + '\n')
+        print("Spot pairs have been written to binance_usdt_pairs.txt")
+    else:
+        print("No Spot pairs found or an error occurred.")
 
 
-UsdtPairs = GetSpotPairs()
-if UsdtPairs:
-    with open('ticket/binance_usdt_pairs.txt', 'w') as File:
-        for Pair in UsdtPairs:
-            File.write(Pair + '\n')
-    print("USDT pairs have been written to binance_usdt_pairs.txt")
-else:
-    print("No USDT pairs found or an error occurred.")
+def main():
+    GetSpotPairs()
+
+if __name__ == "__main__":
+    main()
