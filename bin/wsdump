@@ -1,4 +1,4 @@
-#!/Users/mumu/Documents/Github/CryptoExchangeTicket/bin/python3
+#!/Users/mumu/Documents/Github/CryptoExchangeTicket/bin/python3.13
 # -*- coding: utf-8 -*-
 import re
 import sys
