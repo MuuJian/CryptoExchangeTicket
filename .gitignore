@@ -1,0 +1,7 @@
+# Ignore Python virtual environment directories
+venv/
+bin/
+include/
+lib/
+ticket/
+__pycache__/
