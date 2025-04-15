@@ -7,3 +7,4 @@ ticket/
 __pycache__/
 pyvenv.*
 .DS_Store
+gmgn/

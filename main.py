@@ -9,9 +9,9 @@ import okx
 def main():
     binancefutures.main()
     binancespots.main()
-    bitget.main()
+    #bitget.main()
     #bybitfutures.main()
-    bybitspot.main()
+    #bybitspot.main()
     okx.main()
 
 if __name__ == "__main__":
