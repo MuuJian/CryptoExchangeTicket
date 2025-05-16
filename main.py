@@ -12,7 +12,7 @@ def main():
     #bitget.main()
     #bybitfutures.main()
     #bybitspot.main()
-    okx.main()
+    #okx.main()
 
 if __name__ == "__main__":
     main()
