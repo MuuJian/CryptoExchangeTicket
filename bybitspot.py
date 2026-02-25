@@ -10,8 +10,7 @@ def GetSpotPairs():
     
     if UsdtPairs:
         with open('ticket/bybit_spot_pairs.txt', 'w') as File:
-            for Pair in UsdtPairs:
-                File.write(Pair + '\n')
+            File.write('\n'.join(UsdtPairs) + '\n')
         print("Spot pairs have been written to bybit_spot_pairs.txt")
     else:
         print("No spot pairs found or an error occurred.")
