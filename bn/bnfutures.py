@@ -18,6 +18,7 @@ def save_pairs_to_file(pairs, folder, filename):
     except IOError as e:
         print(f"檔案寫入失敗: {e}")
 
+
 def get_futures_pairs():
     url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
     
@@ -52,8 +53,10 @@ def get_futures_pairs():
     save_pairs_to_file(tradfi_pairs, output_dir, 'binance_tradfi_pairs.txt')
     save_pairs_to_file(futures_pairs, output_dir, 'binance_futures_pairs.txt')
 
+
 def main():
     get_futures_pairs()
+
 
 if __name__ == "__main__":
     main()

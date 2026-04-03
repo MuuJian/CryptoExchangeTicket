@@ -15,7 +15,7 @@ def save_to_file(data_list, folder, filename):
         with open(filepath, 'w') as f:
             # 使用 join 一次性寫入，效能較好
             f.write('\n'.join(data_list) + '\n')
-        print(f"[+] 成功將 {len(data_list)} 個現貨交易對寫入至: {filepath}")
+        print(f"成功將 {len(data_list)} 個現貨交易對寫入至: {filepath}")
     except IOError as e:
         print(f"[!] 檔案寫入失敗: {e}")
 
