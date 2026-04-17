@@ -1,14 +1,23 @@
-import requests
+import bn.bnfutures as bnfutures
+import bn.bnspots as bnspots
+import bn.bnranker as bnranker
+import bn.bnoi as bnoi
+import bitget.bitget as bitget
+import bybit.bybitfutures as bybitfutures
+import bybit.bybitspot as bybitspot
+import okx.okx as okx
 
-url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
-headers = {"X-CMC_PRO_API_KEY": "1c02030fcd9e4fb7b8a9ca8ecc7fba70"}
-params = {"symbol": "BTC,ETH,SOL", "convert": "USD"}
+def main():
+    bnfutures.main()
+    bnspots.main()
+    bnoi.main()
+    #bnranker.main()
 
-response = requests.get(url, headers=headers, params=params)
-data = response.json()
-
-for symbol, info in data["data"].items():
-    market_cap = info["quote"]["USD"]["market_cap"]
-    print(f"{symbol} 市值: ${market_cap:,.0f}")
+    #bitget.main()
+    #bybitfutures.main()
+    #bybitspot.main()
+    #okx.main()
 
 
+if __name__ == "__main__":
+    main()

@@ -39,7 +39,7 @@ def get_futures_pairs():
         # 基本過濾條件
         if symbol_info.get('status') != "TRADING" or symbol_info.get('quoteAsset') != 'USDT':
             continue
-            
+
         symbol_name = f"Binance:{symbol_info['symbol']}.p"
         contract_type = symbol_info.get('contractType')
 
