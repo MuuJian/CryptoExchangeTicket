@@ -1,7 +1,7 @@
 import requests
 import os
-
 from base_asset_map import BASE_ASSET_MAP
+
 
 def save_pairs_to_file(pairs, folder, filename):
     """通用函式：將交易對列表存入檔案"""
