@@ -1,5 +1,7 @@
 import requests
 import os
+from base_asset_map import BASE_ASSET_MAP
+
 
 def save_to_file(data_list, folder, filename):
     """通用函式：自動建立資料夾並寫入檔案"""
@@ -33,11 +35,17 @@ def get_spot_pairs():
 
     # 過濾條件：報價貨幣為 USDT 且 狀態為 TRADING
     # 這裡直接在 List Comprehension 處理，簡潔有力
-    usdt_pairs = [
-        f"Binance:{symbol['symbol']}" 
-        for symbol in data.get('symbols', []) 
-        if symbol.get('quoteAsset') == 'USDT' and symbol.get('status') == 'TRADING'
-    ]
+    usdt_pairs = []
+    for symbol_info in data.get('symbols', []):
+        if symbol_info.get('quoteAsset') != 'USDT' or symbol_info.get('status') != 'TRADING':
+            continue
+
+        pair_symbol = BASE_ASSET_MAP.get(
+            symbol_info.get('symbol'),
+            symbol_info.get('symbol'),
+        )
+
+        usdt_pairs.append(f"Binance:{pair_symbol}")
 
     # 執行儲存
     save_to_file(usdt_pairs, 'ticket', 'binance_usdt_pairs.txt')

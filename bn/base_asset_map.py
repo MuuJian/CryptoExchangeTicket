@@ -1,0 +1,5 @@
+BASE_ASSET_MAP = {
+    "币安人生USDT": "BIANRENSHENGUSDT",
+    "龙虾USDT": "LONGXIAUSDT",
+    "我踏马来了USDT": "WOTAMALAILIAOUSDT",
+}

@@ -1,6 +1,8 @@
 import requests
 import os
 
+from base_asset_map import BASE_ASSET_MAP
+
 def save_pairs_to_file(pairs, folder, filename):
     """通用函式：將交易對列表存入檔案"""
     if not pairs:
@@ -40,8 +42,15 @@ def get_futures_pairs():
         if symbol_info.get('status') != "TRADING" or symbol_info.get('quoteAsset') != 'USDT':
             continue
 
-        symbol_name = f"Binance:{symbol_info['symbol']}.p"
+        pair_symbol = BASE_ASSET_MAP.get(
+            symbol_info.get('symbol'),
+            symbol_info.get('symbol'),
+        )
+        
+        symbol_name = f"Binance:{pair_symbol}.p"
         contract_type = symbol_info.get('contractType')
+
+
 
         if contract_type == 'TRADIFI_PERPETUAL':
             tradfi_pairs.append(symbol_name)
