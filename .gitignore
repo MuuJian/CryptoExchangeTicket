@@ -1,10 +1,2 @@
-# Ignore Python virtual environment directories
-venv/
-bin/
-include/
-lib/
-ticket/
-__pycache__/
-pyvenv.*
-.DS_Store
-gmgn/
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*

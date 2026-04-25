@@ -1,6 +1,10 @@
 import requests
 import os
-from base_asset_map import BASE_ASSET_MAP
+try:
+    from bn.base_asset_map import BASE_ASSET_MAP
+except ImportError:
+    from base_asset_map import BASE_ASSET_MAP
+
 
 
 def save_to_file(data_list, folder, filename):
