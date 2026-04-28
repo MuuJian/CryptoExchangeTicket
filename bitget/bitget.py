@@ -1,25 +1,47 @@
 import requests
 
-def GetSpotPairs():
-    Url = "https://api.bitget.com/api/v2/spot/public/symbols"
+try:
+    from utils import save_lines
+except ImportError:
+    import sys
+    from pathlib import Path
 
-    Response = requests.get(Url)
-    Data = Response.json()
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils import save_lines
 
-    UsdtPairs = [f"Bitget:{Symbols['symbol']}" for Symbols in Data['data'] 
-                if Symbols.get('quoteCoin') == 'USDT' and Symbols.get('status') == 'online']
 
-    if UsdtPairs:
-        with open('ticket/bitget_spot_pairs.txt', 'w') as File:
-            File.write('\n'.join(UsdtPairs) + '\n')
+SYMBOLS_URL = "https://api.bitget.com/api/v2/spot/public/symbols"
 
-        print("Spot pairs have been written to bitget_spot_pairs.txt")
-    else:
-        print("No spot pairs found or an error occurred.")
+
+def get_spot_pairs():
+    try:
+        response = requests.get(SYMBOLS_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"Bitget spot pairs request failed: {e}")
+        return
+
+    usdt_pairs = [
+        f"Bitget:{symbol['symbol']}"
+        for symbol in data.get("data", [])
+        if symbol.get("quoteCoin") == "USDT" and symbol.get("status") == "online"
+    ]
+
+    save_lines(
+        usdt_pairs,
+        "bitget_spot_pairs.txt",
+        empty_message="No spot pairs found or an error occurred.",
+        success_message="Spot pairs have been written to {path}",
+    )
+
+
+GetSpotPairs = get_spot_pairs
 
 
 def main():
-    GetSpotPairs()
+    get_spot_pairs()
+
 
 if __name__ == "__main__":
     main()

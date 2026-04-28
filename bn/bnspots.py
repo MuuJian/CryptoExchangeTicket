@@ -1,61 +1,61 @@
 import requests
-import os
+
 try:
     from bn.base_asset_map import BASE_ASSET_MAP
 except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
+try:
+    from utils import save_lines
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils import save_lines
 
 
-def save_to_file(data_list, folder, filename):
-    """通用函式：自動建立資料夾並寫入檔案"""
-    if not data_list:
-        print(f"[-] 沒有找到交易對，或資料為空。")
-        return
+EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo"
+OUTPUT_DIR = "ticket"
 
-    # 自動建立資料夾 (避免路徑不存在報錯)
-    os.makedirs(folder, exist_ok=True)
-    filepath = os.path.join(folder, filename)
 
-    try:
-        with open(filepath, 'w') as f:
-            # 使用 join 一次性寫入，效能較好
-            f.write('\n'.join(data_list) + '\n')
-        print(f"成功將 {len(data_list)} 個現貨交易對寫入至: {filepath}")
-    except IOError as e:
-        print(f"[!] 檔案寫入失敗: {e}")
+def mapped_symbol(symbol):
+    return BASE_ASSET_MAP.get(symbol, symbol)
+
+
+def get_exchange_info():
+    response = requests.get(EXCHANGE_INFO_URL, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
 
 def get_spot_pairs():
-    """獲取幣安現貨 USDT 交易對"""
-    url = "https://api.binance.com/api/v3/exchangeInfo"
-    
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        data = get_exchange_info()
     except Exception as e:
         print(f"[!] 網路請求失敗: {e}")
         return
 
-    # 過濾條件：報價貨幣為 USDT 且 狀態為 TRADING
-    # 這裡直接在 List Comprehension 處理，簡潔有力
     usdt_pairs = []
-    for symbol_info in data.get('symbols', []):
-        if symbol_info.get('quoteAsset') != 'USDT' or symbol_info.get('status') != 'TRADING':
+    for symbol_info in data.get("symbols", []):
+        if symbol_info.get("quoteAsset") != "USDT" or symbol_info.get("status") != "TRADING":
             continue
 
-        pair_symbol = BASE_ASSET_MAP.get(
-            symbol_info.get('symbol'),
-            symbol_info.get('symbol'),
-        )
-
+        pair_symbol = mapped_symbol(symbol_info.get("symbol"))
         usdt_pairs.append(f"Binance:{pair_symbol}")
 
-    # 執行儲存
-    save_to_file(usdt_pairs, 'ticket', 'binance_usdt_pairs.txt')
+    save_lines(
+        usdt_pairs,
+        "binance_usdt_pairs.txt",
+        folder=OUTPUT_DIR,
+        empty_message="[-] 沒有找到交易對，或資料為空。",
+        success_message="成功將 {count} 個現貨交易對寫入至: {path}",
+    )
+
 
 def main():
     get_spot_pairs()
+
 
 if __name__ == "__main__":
     main()

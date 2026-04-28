@@ -17,7 +17,7 @@ def load_env_file(file_path=".env"):
     with open(file_path, "r", encoding="utf-8") as f:
         for raw_line in f:
             line = raw_line.strip()
-            if not line or line.startswith("#") or "=" not in line: #注释或空行或不合法的行都跳过
+            if not line or line.startswith("#") or "=" not in line:
                 continue
 
             key, value = line.split("=", 1)
@@ -68,7 +68,9 @@ class BinanceOIMonitor:
         self.price_url = f"{self.base_url}/fapi/v1/ticker/price"
         self.alert_percent = alert_percent
         self.notifier = notifier or TelegramNotifier()
-        self.session = requests.Session() if requests else None
+        if requests is None:
+            raise RuntimeError("requests 尚未安裝，請先安裝 requirements.txt")
+        self.session = requests.Session()
         self.snapshot_file = snapshot_file
         self.previous_snapshot = self.load_latest_snapshot()
 
@@ -159,11 +161,11 @@ class BinanceOIMonitor:
             }
 
             previous_item = self.previous_snapshot.get(symbol)
-            if not previous_item or previous_item["oi"] <= 0:
+            previous_oi = previous_item.get("oi", 0) if previous_item else 0
+            if previous_oi <= 0:
                 continue
 
-            previous_oi = previous_item["oi"]
-            previous_price = previous_item["price"]
+            previous_price = previous_item.get("price")
             current_oi_usdt = current_oi * price if price else None
             change_percent = (current_oi - previous_oi) / previous_oi * 100
             price_change_percent = None
@@ -300,7 +302,7 @@ def sleep_until_next_run(interval_seconds, started_at):
     time.sleep(sleep_seconds)
 
 
-def run_forever(interval_minutes=60, alert_percent=10.0, telegram_bot_token=None, telegram_chat_id=None):
+def run_forever(interval_minutes=30, alert_percent=10.0, telegram_bot_token=None, telegram_chat_id=None):
     if interval_minutes <= 0:
         raise ValueError("interval_minutes 必須大於 0")
     if alert_percent <= 0:
@@ -344,14 +346,14 @@ def parse_args():
     load_env_file()
 
     parser = argparse.ArgumentParser(description="BNOI 24 小時 OI 監控器")
-    parser.add_argument("--interval-minutes", type=int, default=30, help="掃描間隔，預設 60 分鐘")
-    parser.add_argument("--alert-percent", type=float, default=5.0, help="OI 增長提醒閾值，預設 10%%")
+    parser.add_argument("--interval-minutes", type=int, default=30, help="掃描間隔，預設 30 分鐘")
+    parser.add_argument("--alert-percent", type=float, default=5.0, help="OI 增長提醒閾值，預設 5%%")
     parser.add_argument("--telegram-bot-token", default=os.getenv("TELEGRAM_BOT_TOKEN"), help="Telegram Bot Token")
     parser.add_argument("--telegram-chat-id", default=os.getenv("TELEGRAM_CHAT_ID"), help="Telegram Chat ID")
     return parser.parse_args()
 
 
-def main(interval_minutes=60, alert_percent=10.0, telegram_bot_token=None, telegram_chat_id=None):
+def main(interval_minutes=30, alert_percent=10.0, telegram_bot_token=None, telegram_chat_id=None):
     load_env_file()
 
     run_forever(

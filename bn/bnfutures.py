@@ -1,70 +1,71 @@
 import requests
-import os
+
 try:
     from bn.base_asset_map import BASE_ASSET_MAP
 except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
+try:
+    from utils import save_lines
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from utils import save_lines
 
 
-def save_pairs_to_file(pairs, folder, filename):
-    """通用函式：將交易對列表存入檔案"""
-    if not pairs:
-        print(f"沒有找到 {filename} 的相關交易對，或發生錯誤。")
-        return
+EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo"
+OUTPUT_DIR = "ticket"
 
-    # 確保資料夾存在
-    os.makedirs(folder, exist_ok=True)
-    filepath = os.path.join(folder, filename)
 
-    try:
-        with open(filepath, 'w') as f:
-            f.write('\n'.join(pairs) + '\n')
-        print(f"成功將 {len(pairs)} 個交易對寫入至 {filepath}")
-    except IOError as e:
-        print(f"檔案寫入失敗: {e}")
+def mapped_symbol(symbol):
+    return BASE_ASSET_MAP.get(symbol, symbol)
+
+
+def get_exchange_info():
+    response = requests.get(EXCHANGE_INFO_URL, timeout=10)
+    response.raise_for_status()
+    return response.json()
 
 
 def get_futures_pairs():
-    url = "https://fapi.binance.com/fapi/v1/exchangeInfo"
-    
     try:
-        response = requests.get(url)
-        response.raise_for_status() # 檢查 HTTP 狀態碼
-        data = response.json()
+        data = get_exchange_info()
     except Exception as e:
         print(f"請求失敗: {e}")
         return
 
-    # 初始化容器
     tradfi_pairs = []
     futures_pairs = []
 
-    # 優化：只遍歷一次 symbols 清單，並進行過濾
-    for symbol_info in data.get('symbols', []):
-        # 基本過濾條件
-        if symbol_info.get('status') != "TRADING" or symbol_info.get('quoteAsset') != 'USDT':
+    for symbol_info in data.get("symbols", []):
+        if symbol_info.get("status") != "TRADING" or symbol_info.get("quoteAsset") != "USDT":
             continue
 
-        pair_symbol = BASE_ASSET_MAP.get(
-            symbol_info.get('symbol'),
-            symbol_info.get('symbol'),
-        )
-        
+        pair_symbol = mapped_symbol(symbol_info.get("symbol"))
         symbol_name = f"Binance:{pair_symbol}.p"
-        contract_type = symbol_info.get('contractType')
+        contract_type = symbol_info.get("contractType")
 
-
-
-        if contract_type == 'TRADIFI_PERPETUAL':
+        if contract_type == "TRADIFI_PERPETUAL":
             tradfi_pairs.append(symbol_name)
-        elif contract_type == 'PERPETUAL':
+        elif contract_type == "PERPETUAL":
             futures_pairs.append(symbol_name)
 
-    # 執行儲存
-    output_dir = 'ticket'
-    save_pairs_to_file(tradfi_pairs, output_dir, 'binance_tradfi_pairs.txt')
-    save_pairs_to_file(futures_pairs, output_dir, 'binance_futures_pairs.txt')
+    save_lines(
+        tradfi_pairs,
+        "binance_tradfi_pairs.txt",
+        folder=OUTPUT_DIR,
+        empty_message="沒有找到 binance_tradfi_pairs.txt 的相關交易對，或發生錯誤。",
+        success_message="成功將 {count} 個交易對寫入至 {path}",
+    )
+    save_lines(
+        futures_pairs,
+        "binance_futures_pairs.txt",
+        folder=OUTPUT_DIR,
+        empty_message="沒有找到 binance_futures_pairs.txt 的相關交易對，或發生錯誤。",
+        success_message="成功將 {count} 個交易對寫入至 {path}",
+    )
 
 
 def main():
