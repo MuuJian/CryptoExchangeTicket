@@ -1,0 +1,25 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Realtime OI Dashboard",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/realtime_oi_dashboard/server.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--oi-batch-size",
+        "25",
+        "--oi-batch-delay",
+        "1"
+      ],
+      "serverReadyAction": {
+        "pattern": "Dashboard running at (http://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    }
+  ]
+}
