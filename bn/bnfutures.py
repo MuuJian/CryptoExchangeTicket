@@ -6,13 +6,13 @@ except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
 try:
-    from utils import save_lines
+    from utils import save_chunked_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import save_lines
+    from utils import save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo"
@@ -52,19 +52,21 @@ def get_futures_pairs():
         elif contract_type == "PERPETUAL":
             futures_pairs.append(symbol_name)
 
-    save_lines(
+    save_chunked_lines(
         tradfi_pairs,
         "binance_tradfi_pairs.txt",
         folder=OUTPUT_DIR,
+        chunk_size=500,
         empty_message="沒有找到 binance_tradfi_pairs.txt 的相關交易對，或發生錯誤。",
-        success_message="成功將 {count} 個交易對寫入至 {path}",
+        success_message="成功將 {count} 個交易對拆成 {files} 個檔案: {path}",
     )
-    save_lines(
+    save_chunked_lines(
         futures_pairs,
         "binance_futures_pairs.txt",
         folder=OUTPUT_DIR,
+        chunk_size=500,
         empty_message="沒有找到 binance_futures_pairs.txt 的相關交易對，或發生錯誤。",
-        success_message="成功將 {count} 個交易對寫入至 {path}",
+        success_message="成功將 {count} 個交易對拆成 {files} 個檔案: {path}",
     )
 
 

@@ -284,10 +284,9 @@
     th:nth-child(4), td:nth-child(4) { width: 135px; }
     th:nth-child(5), td:nth-child(5) { width: 140px; }
     th:nth-child(6), td:nth-child(6) { width: 145px; }
-    th:nth-child(7), td:nth-child(7) { width: 150px; }
-    th:nth-child(8), td:nth-child(8) { width: 125px; }
-    th:nth-child(9), td:nth-child(9) { width: 130px; }
-    th:nth-child(10), td:nth-child(10) { width: 135px; }
+    th:nth-child(7), td:nth-child(7) { width: 125px; }
+    th:nth-child(8), td:nth-child(8) { width: 130px; }
+    th:nth-child(9), td:nth-child(9) { width: 135px; }
 
     .pos { color: #05a846; }
     .neg { color: #d74646; }
@@ -357,9 +356,8 @@
           <select id="limitSelect">
             <option value="50">Top 50</option>
             <option value="100">Top 100</option>
-            <option value="99999">All</option>
+            <option value="99999" selected>All</option>
           </select>
-          <button id="refreshBtn">Refresh OI</button>
         </div>
       </div>
 
@@ -373,7 +371,6 @@
               <th data-sort="priceChangePercent"><span class="sort-label">价格(24h%)<span class="sort-arrows"></span></span></th>
               <th data-sort="currentOiValue"><span class="sort-label">持仓价值<span class="sort-arrows"></span></span></th>
               <th data-sort="volume24h"><span class="sort-label">成交额(24h)<span class="sort-arrows"></span></span></th>
-              <th data-sort="currentOi"><span class="sort-label">持仓<span class="sort-arrows"></span></span></th>
               <th data-sort="changePercent"><span class="sort-label">持仓变化<span class="sort-arrows"></span></span></th>
               <th data-sort="oi24hChangePercent"><span class="sort-label">持仓(24h%)<span class="sort-arrows"></span></span></th>
               <th data-sort="changeValue"><span class="sort-label">变化价值<span class="sort-arrows"></span></span></th>
@@ -410,6 +407,10 @@
       return (value >= 0 ? "+" : "") + Number(value).toFixed(2) + "%";
     };
     const signClass = value => Number(value) >= 0 ? "pos" : "neg";
+    const sortableNumber = value => {
+      const number = Number(value);
+      return Number.isFinite(number) ? number : null;
+    };
 
     function saveFavorites() {
       localStorage.setItem("oiFavorites", JSON.stringify([...state.favorites]));
@@ -474,7 +475,12 @@
           const favoriteDiff = Number(state.favorites.has(b.symbol)) - Number(state.favorites.has(a.symbol));
           if (!state.favoritesOnly && favoriteDiff !== 0) return favoriteDiff;
           if (state.sortKey === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
-          return (Number(a[state.sortKey]) - Number(b[state.sortKey])) * dir;
+          const left = sortableNumber(a[state.sortKey]);
+          const right = sortableNumber(b[state.sortKey]);
+          if (left == null && right == null) return 0;
+          if (left == null) return 1;
+          if (right == null) return -1;
+          return (left - right) * dir;
         })
         .slice(0, limit);
     }
@@ -516,12 +522,11 @@
           <td class="heat ${signClass(row.priceChangePercent)}" style="${heatStyle(row.priceChangePercent, maxPriceChange)}">${fmtPct(row.priceChangePercent)}</td>
           <td>${fmtUsd(row.currentOiValue)}</td>
           <td>${fmtUsd(row.volume24h)}</td>
-          <td>${fmtAmount(row.currentOi)}</td>
           <td class="heat ${signClass(row.changePercent)}" style="${heatStyle(row.changePercent, maxOiChange)}">${fmtPct(row.changePercent)}</td>
           <td class="heat ${signClass(row.oi24hChangePercent)}" style="${heatStyle(row.oi24hChangePercent, maxOi24hChange)}">${fmtPct(row.oi24hChangePercent)}</td>
           <td>${fmtUsd(row.changeValue)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="10" class="empty">正在建立 OI 基准。分批更新一圈后，持仓变化会逐步出现。</td></tr>`;
+      `).join("") || `<tr><td colspan="9" class="empty">正在建立 OI 基准。分批更新一圈后，持仓变化会逐步出现。</td></tr>`;
     }
 
     function updateSortIndicators() {
@@ -571,7 +576,6 @@
     document.getElementById("limitSelect").addEventListener("change", render);
     document.getElementById("oiValueFilter").addEventListener("change", render);
     document.getElementById("volumeFilter").addEventListener("change", render);
-    document.getElementById("refreshBtn").addEventListener("click", loadOi);
     document.getElementById("favoritesOnlyBtn").addEventListener("click", () => {
       state.favoritesOnly = !state.favoritesOnly;
       render();

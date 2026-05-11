@@ -23,7 +23,7 @@ class OIPoller:
         batch_size=25,
         batch_delay=1.0,
         refresh_symbols_interval=900,
-        oi_24h_cache_seconds=1800,
+        oi_24h_cache_seconds=30,
     ):
         self.batch_size = batch_size
         self.batch_delay = batch_delay
@@ -361,7 +361,7 @@ def parse_args():
     parser.add_argument("--port", type=int, default=PORT)
     parser.add_argument("--oi-batch-size", type=int, default=25, help="symbols to update per batch")
     parser.add_argument("--oi-batch-delay", type=float, default=1.0, help="seconds between batches")
-    parser.add_argument("--oi-24h-cache-minutes", type=float, default=0, help="minutes to cache 24h OI history; 0 means query every update")
+    parser.add_argument("--oi-24h-cache-seconds", type=float, default=30, help="seconds to cache 24h OI history; 0 means query every update")
     return parser.parse_args()
 
 
@@ -370,7 +370,7 @@ def main():
     poller = OIPoller(
         batch_size=args.oi_batch_size,
         batch_delay=args.oi_batch_delay,
-        oi_24h_cache_seconds=args.oi_24h_cache_minutes * 60,
+        oi_24h_cache_seconds=args.oi_24h_cache_seconds,
     )
     DashboardHandler.poller = poller
 

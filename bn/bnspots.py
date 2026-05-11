@@ -6,13 +6,13 @@ except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
 try:
-    from utils import save_lines
+    from utils import save_chunked_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import save_lines
+    from utils import save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo"
@@ -44,12 +44,13 @@ def get_spot_pairs():
         pair_symbol = mapped_symbol(symbol_info.get("symbol"))
         usdt_pairs.append(f"Binance:{pair_symbol}")
 
-    save_lines(
+    save_chunked_lines(
         usdt_pairs,
         "binance_usdt_pairs.txt",
         folder=OUTPUT_DIR,
+        chunk_size=500,
         empty_message="[-] 沒有找到交易對，或資料為空。",
-        success_message="成功將 {count} 個現貨交易對寫入至: {path}",
+        success_message="成功將 {count} 個現貨交易對拆成 {files} 個檔案: {path}",
     )
 
 
