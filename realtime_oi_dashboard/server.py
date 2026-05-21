@@ -103,6 +103,9 @@ class OIPoller:
                 "oi24hChangeAmount": None,
                 "oi24hChangePercent": None,
                 "oi24hChangeValue": None,
+                "oi7dChangeAmount": None,
+                "oi7dChangePercent": None,
+                "oi7dChangeValue": None,
             }
 
     def get_active_symbols(self):
@@ -134,7 +137,22 @@ class OIPoller:
         resp.raise_for_status()
         return float(resp.json()["openInterest"])
 
-    def get_oi_24h_change(self, symbol, current_oi, price):
+    def build_oi_change(self, current_oi, past_oi, price, prefix):
+        if past_oi <= 0:
+            return {
+                f"{prefix}ChangeAmount": None,
+                f"{prefix}ChangePercent": None,
+                f"{prefix}ChangeValue": None,
+            }
+
+        amount = current_oi - past_oi
+        return {
+            f"{prefix}ChangeAmount": amount,
+            f"{prefix}ChangePercent": amount / past_oi * 100,
+            f"{prefix}ChangeValue": amount * price,
+        }
+
+    def get_oi_history_changes(self, symbol, current_oi, price):
         cached = self.oi_24h_cache.get(symbol)
         if (
             self.oi_24h_cache_seconds > 0
@@ -147,26 +165,27 @@ class OIPoller:
             "oi24hChangeAmount": None,
             "oi24hChangePercent": None,
             "oi24hChangeValue": None,
+            "oi7dChangeAmount": None,
+            "oi7dChangePercent": None,
+            "oi7dChangeValue": None,
         }
 
         try:
             resp = self.session.get(
                 self.oi_hist_url,
-                params={"symbol": symbol, "period": "1h", "limit": 25},
+                params={"symbol": symbol, "period": "1h", "limit": 169},
                 timeout=10,
             )
             resp.raise_for_status()
             history = resp.json()
             if isinstance(history, list) and history:
                 history.sort(key=lambda item: item.get("timestamp", 0))
-                past_oi = float(history[0]["sumOpenInterest"])
-                if past_oi > 0:
-                    amount = current_oi - past_oi
-                    data = {
-                        "oi24hChangeAmount": amount,
-                        "oi24hChangePercent": amount / past_oi * 100,
-                        "oi24hChangeValue": amount * price,
-                    }
+                if len(history) >= 25:
+                    past_24h_oi = float(history[-25]["sumOpenInterest"])
+                    data.update(self.build_oi_change(current_oi, past_24h_oi, price, "oi24h"))
+                if len(history) >= 169:
+                    past_7d_oi = float(history[0]["sumOpenInterest"])
+                    data.update(self.build_oi_change(current_oi, past_7d_oi, price, "oi7d"))
         except Exception:
             pass
 
@@ -252,7 +271,7 @@ class OIPoller:
                 change_percent = change_amount / previous_oi * 100
                 change_value = change_amount * price
 
-            oi_24h = self.get_oi_24h_change(symbol, current_oi, price)
+            oi_history = self.get_oi_history_changes(symbol, current_oi, price)
             price_24h = self.get_price_24h_change(symbol, price)
 
             self.snapshot[symbol] = {
@@ -273,7 +292,7 @@ class OIPoller:
                 "absChangePercent": abs(change_percent or 0),
                 "changeValue": change_value,
                 **price_24h,
-                **oi_24h,
+                **oi_history,
             }
             updated_symbols += 1
             time.sleep(0.02)

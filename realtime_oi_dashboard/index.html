@@ -286,7 +286,8 @@
     th:nth-child(6), td:nth-child(6) { width: 145px; }
     th:nth-child(7), td:nth-child(7) { width: 125px; }
     th:nth-child(8), td:nth-child(8) { width: 130px; }
-    th:nth-child(9), td:nth-child(9) { width: 135px; }
+    th:nth-child(9), td:nth-child(9) { width: 130px; }
+    th:nth-child(10), td:nth-child(10) { width: 135px; }
 
     .pos { color: #05a846; }
     .neg { color: #d74646; }
@@ -373,6 +374,7 @@
               <th data-sort="volume24h"><span class="sort-label">成交额(24h)<span class="sort-arrows"></span></span></th>
               <th data-sort="changePercent"><span class="sort-label">持仓变化<span class="sort-arrows"></span></span></th>
               <th data-sort="oi24hChangePercent"><span class="sort-label">持仓(24h%)<span class="sort-arrows"></span></span></th>
+              <th data-sort="oi7dChangePercent"><span class="sort-label">持仓(7d%)<span class="sort-arrows"></span></span></th>
               <th data-sort="changeValue"><span class="sort-label">变化价值<span class="sort-arrows"></span></span></th>
             </tr>
           </thead>
@@ -444,6 +446,7 @@
         volume24h: live.volume24h ?? row.volume24h,
         changeValue: row.changeAmount == null ? row.changeValue : row.changeAmount * price,
         oi24hChangeValue: row.oi24hChangeAmount == null ? row.oi24hChangeValue : row.oi24hChangeAmount * price,
+        oi7dChangeValue: row.oi7dChangeAmount == null ? row.oi7dChangeValue : row.oi7dChangeAmount * price,
       };
     }
 
@@ -472,8 +475,6 @@
         .filter(row => !minOiValue || Number(row.currentOiValue || 0) >= minOiValue)
         .filter(row => !minVolume || Number(row.volume24h || 0) >= minVolume)
         .sort((a, b) => {
-          const favoriteDiff = Number(state.favorites.has(b.symbol)) - Number(state.favorites.has(a.symbol));
-          if (!state.favoritesOnly && favoriteDiff !== 0) return favoriteDiff;
           if (state.sortKey === "symbol") return a.symbol.localeCompare(b.symbol) * dir;
           const left = sortableNumber(a[state.sortKey]);
           const right = sortableNumber(b[state.sortKey]);
@@ -505,6 +506,7 @@
       const visible = sortedRows();
       const maxOiChange = Math.max(...visible.map(row => Math.abs(row.changePercent || 0)), 0);
       const maxOi24hChange = Math.max(...visible.map(row => Math.abs(row.oi24hChangePercent || 0)), 0);
+      const maxOi7dChange = Math.max(...visible.map(row => Math.abs(row.oi7dChangePercent || 0)), 0);
       const maxPriceChange = Math.max(...visible.map(row => Math.abs(row.priceChangePercent || 0)), 0);
 
       document.getElementById("rankBody").innerHTML = visible.map(row => `
@@ -524,9 +526,10 @@
           <td>${fmtUsd(row.volume24h)}</td>
           <td class="heat ${signClass(row.changePercent)}" style="${heatStyle(row.changePercent, maxOiChange)}">${fmtPct(row.changePercent)}</td>
           <td class="heat ${signClass(row.oi24hChangePercent)}" style="${heatStyle(row.oi24hChangePercent, maxOi24hChange)}">${fmtPct(row.oi24hChangePercent)}</td>
+          <td class="heat ${signClass(row.oi7dChangePercent)}" style="${heatStyle(row.oi7dChangePercent, maxOi7dChange)}">${fmtPct(row.oi7dChangePercent)}</td>
           <td>${fmtUsd(row.changeValue)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="9" class="empty">正在建立 OI 基准。分批更新一圈后，持仓变化会逐步出现。</td></tr>`;
+      `).join("") || `<tr><td colspan="10" class="empty">正在建立 OI 基准。分批更新一圈后，持仓变化会逐步出现。</td></tr>`;
     }
 
     function updateSortIndicators() {
