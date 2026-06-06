@@ -1,13 +1,16 @@
 from pybit.unified_trading import HTTP
 
 try:
-    from utils import save_lines
+    from exchanges.utils import save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import save_lines
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from exchanges.utils import save_lines
+
+
+OUTPUT_DIR = "ticket"
 
 
 def get_futures_pairs():
@@ -28,6 +31,7 @@ def get_futures_pairs():
     save_lines(
         futures_pairs,
         "bybit_future_pairs.txt",
+        folder=OUTPUT_DIR,
         empty_message="No futures pairs found.",
         success_message="Futures pairs have been written to {path}",
     )

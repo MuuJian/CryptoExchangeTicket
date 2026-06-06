@@ -1,16 +1,17 @@
 import requests
 
 try:
-    from utils import save_lines
+    from exchanges.utils import save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import save_lines
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from exchanges.utils import save_lines
 
 
 SYMBOLS_URL = "https://api.bitget.com/api/v2/spot/public/symbols"
+OUTPUT_DIR = "ticket"
 
 
 def get_spot_pairs():
@@ -31,6 +32,7 @@ def get_spot_pairs():
     save_lines(
         usdt_pairs,
         "bitget_spot_pairs.txt",
+        folder=OUTPUT_DIR,
         empty_message="No spot pairs found or an error occurred.",
         success_message="Spot pairs have been written to {path}",
     )

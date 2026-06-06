@@ -8,6 +8,8 @@ pyvenv.*
 # Runtime output and local config
 ticket/
 realtime_oi_dashboard/data/
+ath_atl/data/
+ath_atl/logs/
 .env
 .DS_Store
 

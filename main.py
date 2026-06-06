@@ -1,10 +1,6 @@
-from bn import binance_oi_monitor, bnfutures, bnspots
-from bn import bnoi
-from bitget import bitget
-from bybit import bybitfutures, bybitspot
-from okx import okx
-
 def main():
+    from exchanges.bn import bnfutures, bnspots
+
     #bitget.main()
     #bybitfutures.main()
     #bybitspot.main()

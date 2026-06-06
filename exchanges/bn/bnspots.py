@@ -1,18 +1,18 @@
 import requests
 
 try:
-    from bn.base_asset_map import BASE_ASSET_MAP
+    from .base_asset_map import BASE_ASSET_MAP
 except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
 try:
-    from utils import save_chunked_lines
+    from exchanges.utils import save_chunked_lines
 except ImportError:
     import sys
     from pathlib import Path
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from utils import save_chunked_lines
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from exchanges.utils import save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo"
