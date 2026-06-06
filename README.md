@@ -42,11 +42,10 @@ The first run initializes ATH/ATL baselines in SQLite. Later runs compare new da
 klines against the stored ATH/ATL values and write `new_high` / `new_low`
 breakouts to `ath_atl/data/daily_breakouts.json`.
 
-Web pages:
+Web page:
 
 ```text
 http://127.0.0.1:8788/
-http://127.0.0.1:8788/breakouts
 ```
 
 Small test run:

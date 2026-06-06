@@ -346,106 +346,6 @@ ATH_ATL_HTML = """
 """
 
 
-BREAKOUTS_HTML = """
-<!doctype html>
-<html lang="zh-Hans">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ATH / ATL Breakouts</title>
-  <style>{css}</style>
-</head>
-<body>
-  <main class="page">
-    <header class="topbar">
-      <div>
-        <h1>突破列表</h1>
-        <p class="subtitle">单独展示最新扫描里突破历史新高或跌破历史新低的币。</p>
-        <p class="scan-status" id="scan-status">后台扫描状态：Loading...</p>
-      </div>
-    </header>
-
-    <section class="stats">
-      <div class="stat"><label>突破数量</label><strong id="stat-count">-</strong></div>
-      <div class="stat"><label>新高</label><strong id="stat-high">-</strong></div>
-      <div class="stat"><label>新低</label><strong id="stat-low">-</strong></div>
-      <div class="stat"><label>生成时间</label><strong id="stat-updated">-</strong></div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">Daily Breakouts</div>
-          <div class="muted">数据来自 ath_atl/data/daily_breakouts.json。</div>
-        </div>
-        <div class="tools">
-          <input id="search" placeholder="Search symbol">
-          <select id="type">
-            <option value="">全部突破</option>
-            <option value="new_high">New high</option>
-            <option value="new_low">New low</option>
-          </select>
-          <button id="refresh">Refresh</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-breakout-key="date">日期</th>
-              <th data-breakout-key="symbol">币种</th>
-              <th data-breakout-key="breakout_type">类型</th>
-              <th class="num" data-breakout-key="price">突破价</th>
-              <th class="num" data-breakout-key="previous_price">原高/低点</th>
-            </tr>
-          </thead>
-          <tbody id="rows">
-            <tr><td class="empty" colspan="5">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <div class="panel-title">All Symbols ATH / ATL</div>
-          <div class="muted">同名币种只显示 K 线起点更早的一条。</div>
-        </div>
-        <div class="tools">
-          <input id="ath-search" placeholder="Search symbol">
-          <select id="ath-limit">
-            <option value="100">Top 100</option>
-            <option value="300">Top 300</option>
-            <option value="0">All</option>
-          </select>
-          <button id="ath-refresh">Refresh ATH/ATL</button>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th data-record-key="symbol">币种</th>
-              <th class="num" data-record-key="current_price">当前价格</th>
-              <th class="num" data-record-key="ath_price">ATH</th>
-              <th class="num" data-record-key="atl_price">ATL</th>
-              <th data-record-key="updated_at">更新</th>
-            </tr>
-          </thead>
-          <tbody id="ath-rows">
-            <tr><td class="empty" colspan="5">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </main>
-  <script>{script}</script>
-</body>
-</html>
-"""
-
-
 ATH_ATL_SCRIPT = """
 let records = [];
 let breakouts = [];
@@ -505,11 +405,12 @@ function describeStatus(status) {
   if (status.running) {
     return `扫描中，从 ${cleanDate(status.started_at)} 开始`;
   }
+  if (status.finished_at) {
+    const message = `上次完成 ${cleanDate(status.finished_at)}，下次 ${cleanDate(status.next_scan_at)}`;
+    return status.warning ? `${message}；${status.warning}` : message;
+  }
   if (status.error) {
     return `错误：${status.error}`;
-  }
-  if (status.finished_at) {
-    return `上次完成 ${cleanDate(status.finished_at)}，下次 ${cleanDate(status.next_scan_at)}`;
   }
   return status.auto_scan ? "等待第一次扫描" : "自动扫描已关闭";
 }
@@ -657,219 +558,6 @@ setInterval(loadData, 30000);
 """
 
 
-BREAKOUTS_SCRIPT = """
-let breakouts = [];
-let records = [];
-let scanStatus = {};
-let sortKey = "date";
-let sortDir = "desc";
-let recordSortKey = "symbol";
-let recordSortDir = "asc";
-
-const fmtPrice = (value) => {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
-  const number = Number(value);
-  if (number === 0) return "$0";
-  if (Math.abs(number) >= 1) return "$" + number.toLocaleString(undefined, { maximumFractionDigits: 8 });
-  return "$" + number.toPrecision(6).replace(/0+$/, "").replace(/\\.$/, "");
-};
-
-function cleanDate(value) {
-  if (!value) return "-";
-  const text = String(value);
-  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(text)) return text;
-
-  const normalized = text.includes("T") ? text : text.replace(" ", "T");
-  const hasTimezone = /(?:Z|[+-]\\d{2}:?\\d{2})$/.test(normalized);
-  const date = new Date(hasTimezone ? normalized : normalized + "Z");
-  if (Number.isNaN(date.getTime())) return text.slice(0, 19).replace("T", " ");
-
-  const parts = new Intl.DateTimeFormat("zh-CN", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(date).reduce((acc, part) => {
-    acc[part.type] = part.value;
-    return acc;
-  }, {});
-
-  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
-}
-
-async function loadStatus() {
-  try {
-    const resp = await fetch("/api/status");
-    scanStatus = await resp.json();
-    const node = document.getElementById("scan-status");
-    node.textContent = "后台扫描状态：" + describeStatus(scanStatus);
-  } catch (error) {
-    document.getElementById("scan-status").textContent = "后台扫描状态：读取失败";
-  }
-}
-
-function describeStatus(status) {
-  if (status.running) {
-    return `扫描中，从 ${cleanDate(status.started_at)} 开始`;
-  }
-  if (status.error) {
-    return `错误：${status.error}`;
-  }
-  if (status.finished_at) {
-    return `上次完成 ${cleanDate(status.finished_at)}，下次 ${cleanDate(status.next_scan_at)}`;
-  }
-  return status.auto_scan ? "等待第一次扫描" : "自动扫描已关闭";
-}
-
-async function loadData() {
-  const rows = document.getElementById("rows");
-  rows.innerHTML = '<tr><td class="empty" colspan="5">Loading...</td></tr>';
-  try {
-    const resp = await fetch("/api/breakouts");
-    const data = await resp.json();
-    breakouts = data.breakouts || [];
-    document.getElementById("stat-updated").textContent = cleanDate(data.generated_at);
-    render();
-  } catch (error) {
-    rows.innerHTML = '<tr><td class="empty error" colspan="5">Failed to load breakout data</td></tr>';
-  }
-}
-
-async function loadAthData() {
-  const rows = document.getElementById("ath-rows");
-  rows.innerHTML = '<tr><td class="empty" colspan="5">Loading...</td></tr>';
-  try {
-    const resp = await fetch("/api/ath-atl");
-    const data = await resp.json();
-    records = data.records || [];
-    renderAthTable();
-  } catch (error) {
-    rows.innerHTML = '<tr><td class="empty error" colspan="5">Failed to load ATH/ATL data</td></tr>';
-  }
-}
-
-function render() {
-  const search = document.getElementById("search").value.trim().toUpperCase();
-  const type = document.getElementById("type").value;
-  let filtered = breakouts.filter((row) => {
-    const textMatch = !search || row.symbol.includes(search);
-    const typeMatch = !type || row.breakout_type === type;
-    return textMatch && typeMatch;
-  });
-
-  filtered.sort((a, b) => compareValues(a[sortKey], b[sortKey]) * (sortDir === "asc" ? 1 : -1));
-
-  document.getElementById("stat-count").textContent = filtered.length.toLocaleString();
-  document.getElementById("stat-high").textContent = filtered.filter((row) => row.breakout_type === "new_high").length.toLocaleString();
-  document.getElementById("stat-low").textContent = filtered.filter((row) => row.breakout_type === "new_low").length.toLocaleString();
-
-  const rows = document.getElementById("rows");
-  if (!filtered.length) {
-    const message = scanStatus.running
-      ? "后台正在扫描；如果有新高/新低，会自动出现在这里。"
-      : "没有突破数据。后台会自动扫描，也可以手动运行 python3 -m ath_atl.tracker";
-    rows.innerHTML = `<tr><td class="empty" colspan="5">${message}</td></tr>`;
-    return;
-  }
-
-  rows.innerHTML = filtered.map((row) => {
-    const typeLabel = row.breakout_type === "new_high" ? "New high" : "New low";
-    const typeClass = row.breakout_type === "new_high" ? "high" : "low";
-    return `
-      <tr>
-        <td>${row.date || "-"}</td>
-        <td class="symbol">${row.symbol}</td>
-        <td class="${typeClass}">${typeLabel}</td>
-        <td class="num">${fmtPrice(row.price)}</td>
-        <td class="num muted">${fmtPrice(row.previous_price)}</td>
-      </tr>
-    `;
-  }).join("");
-}
-
-function renderAthTable() {
-  const search = document.getElementById("ath-search").value.trim().toUpperCase();
-  const limit = Number(document.getElementById("ath-limit").value);
-
-  let filtered = records.filter((row) => {
-    return !search || row.symbol.includes(search);
-  });
-
-  filtered.sort((a, b) => compareValues(a[recordSortKey], b[recordSortKey]) * (recordSortDir === "asc" ? 1 : -1));
-  const shown = limit > 0 ? filtered.slice(0, limit) : filtered;
-
-  const rows = document.getElementById("ath-rows");
-  if (!shown.length) {
-    const message = scanStatus.running
-      ? "后台正在扫描，ATH/ATL 数据会自动出现在这里。"
-      : "没有 ATH/ATL 数据。后台会自动扫描，也可以手动运行 python3 -m ath_atl.tracker";
-    rows.innerHTML = `<tr><td class="empty" colspan="5">${message}</td></tr>`;
-    return;
-  }
-
-  rows.innerHTML = shown.map((row) => `
-    <tr>
-      <td class="symbol">${row.symbol}</td>
-      <td class="num">${fmtPrice(row.current_price)}</td>
-      <td class="num high">${fmtPrice(row.ath_price)}</td>
-      <td class="num low">${fmtPrice(row.atl_price)}</td>
-      <td class="muted">${cleanDate(row.updated_at)}</td>
-    </tr>
-  `).join("");
-}
-
-function compareValues(left, right) {
-  const leftNum = Number(left);
-  const rightNum = Number(right);
-  if (!Number.isNaN(leftNum) && !Number.isNaN(rightNum)) return leftNum - rightNum;
-  return String(left ?? "").localeCompare(String(right ?? ""));
-}
-
-document.querySelectorAll("th[data-breakout-key]").forEach((th) => {
-  th.addEventListener("click", () => {
-    const key = th.dataset.breakoutKey;
-    if (sortKey === key) {
-      sortDir = sortDir === "asc" ? "desc" : "asc";
-    } else {
-      sortKey = key;
-      sortDir = "asc";
-    }
-    render();
-  });
-});
-
-document.querySelectorAll("th[data-record-key]").forEach((th) => {
-  th.addEventListener("click", () => {
-    const key = th.dataset.recordKey;
-    if (recordSortKey === key) {
-      recordSortDir = recordSortDir === "asc" ? "desc" : "asc";
-    } else {
-      recordSortKey = key;
-      recordSortDir = "asc";
-    }
-    renderAthTable();
-  });
-});
-
-document.getElementById("search").addEventListener("input", render);
-document.getElementById("type").addEventListener("change", render);
-document.getElementById("refresh").addEventListener("click", loadData);
-document.getElementById("ath-search").addEventListener("input", renderAthTable);
-document.getElementById("ath-limit").addEventListener("change", renderAthTable);
-document.getElementById("ath-refresh").addEventListener("click", loadAthData);
-loadStatus();
-loadData();
-loadAthData();
-setInterval(loadStatus, 5000);
-setInterval(loadData, 30000);
-setInterval(loadAthData, 30000);
-"""
-
-
 class BackgroundScanner:
     def __init__(
         self,
@@ -881,7 +569,11 @@ class BackgroundScanner:
         symbols=None,
         max_symbols=None,
         request_delay=0.05,
+        retry_attempts=4,
+        retry_backoff=1.0,
+        request_timeout=20,
         kline_limit=1000,
+        scan_workers=4,
         interval_hours=24.0,
     ):
         self.db_path = Path(db_path)
@@ -892,7 +584,11 @@ class BackgroundScanner:
         self.symbols = symbols
         self.max_symbols = max_symbols
         self.request_delay = request_delay
+        self.retry_attempts = retry_attempts
+        self.retry_backoff = retry_backoff
+        self.request_timeout = request_timeout
         self.kline_limit = kline_limit
+        self.scan_workers = scan_workers
         self.interval_seconds = max(60, int(interval_hours * 60 * 60))
         self.stop_event = threading.Event()
         self.lock = threading.Lock()
@@ -906,6 +602,7 @@ class BackgroundScanner:
             "finished_at": None,
             "next_scan_at": None,
             "error": None,
+            "warning": None,
             "summary": {},
             "breakouts": 0,
         }
@@ -940,6 +637,7 @@ class BackgroundScanner:
             running=True,
             started_at=started_at,
             error=None,
+            warning=None,
             next_scan_at=None,
         )
         print(f"ATH/ATL scan started at {started_at}")
@@ -947,8 +645,18 @@ class BackgroundScanner:
         store = None
         try:
             store = ATHATLStore(self.db_path)
-            client = BinanceClient(request_delay=self.request_delay)
-            tracker = ATHATLTracker(client=client, store=store, kline_limit=self.kline_limit)
+            client = BinanceClient(
+                request_delay=self.request_delay,
+                retry_attempts=self.retry_attempts,
+                retry_backoff=self.retry_backoff,
+                timeout=self.request_timeout,
+            )
+            tracker = ATHATLTracker(
+                client=client,
+                store=store,
+                kline_limit=self.kline_limit,
+                scan_workers=self.scan_workers,
+            )
             breakouts, summary = tracker.scan(
                 market_types=self.market_types,
                 symbols=self.symbols,
@@ -959,11 +667,13 @@ class BackgroundScanner:
 
             finished_at = now_iso()
             next_scan_at = future_iso(self.interval_seconds)
+            warning = summary_warning(summary)
             self.set_status(
                 running=False,
                 finished_at=finished_at,
                 next_scan_at=next_scan_at,
                 error=None,
+                warning=warning,
                 summary=summary,
                 breakouts=len(breakouts),
             )
@@ -976,6 +686,7 @@ class BackgroundScanner:
                 finished_at=finished_at,
                 next_scan_at=next_scan_at,
                 error=str(exc),
+                warning=None,
             )
             print(f"ATH/ATL scan failed at {finished_at}: {exc}")
         finally:
@@ -993,10 +704,8 @@ class ATHATLHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
 
-        if path in {"/", "/ath-atl"}:
+        if path == "/":
             self.send_html(ATH_ATL_HTML.format(css=PAGE_CSS, script=ATH_ATL_SCRIPT))
-        elif path == "/breakouts":
-            self.send_html(BREAKOUTS_HTML.format(css=PAGE_CSS, script=BREAKOUTS_SCRIPT))
         elif path == "/api/ath-atl":
             params = parse_qs(parsed.query)
             self.send_json({"records": load_records(self.db_path, params)})
@@ -1111,8 +820,15 @@ def load_breakouts(path, db_path=None):
     except json.JSONDecodeError:
         return {"generated_at": None, "date": None, "summary": {}, "breakouts": []}
 
-    payload["breakouts"] = dedupe_breakouts(payload.get("breakouts", []), db_path)
+    breakouts = dedupe_breakouts(payload.get("breakouts", []), db_path)
+    payload["all_breakouts_count"] = len(breakouts)
+    payload["breakouts"] = filter_today_breakouts(breakouts)
     return payload
+
+
+def filter_today_breakouts(breakouts):
+    today = datetime.now(timezone.utc).date().isoformat()
+    return [row for row in breakouts if row.get("date") == today]
 
 
 def dedupe_breakouts(breakouts, db_path=None):
@@ -1153,6 +869,7 @@ def load_status(path, scanner=None):
             "finished_at": None,
             "next_scan_at": None,
             "error": None,
+            "warning": None,
             "summary": {},
             "breakouts": 0,
         }
@@ -1167,6 +884,7 @@ def load_status(path, scanner=None):
             "finished_at": None,
             "next_scan_at": None,
             "error": "scan_status.json is not valid JSON",
+            "warning": None,
             "summary": {},
             "breakouts": 0,
         }
@@ -1183,6 +901,13 @@ def now_iso():
 
 def future_iso(seconds):
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat(timespec="seconds")
+
+
+def summary_warning(summary):
+    error_count = sum(item.get("errors", 0) for item in summary.values())
+    if not error_count:
+        return None
+    return f"{error_count} symbols failed; scan continued"
 
 
 def parse_args():
@@ -1203,7 +928,11 @@ def parse_args():
     parser.add_argument("--symbols", help="comma-separated symbols for targeted background scans")
     parser.add_argument("--max-symbols", type=int, help="limit symbols per market for testing")
     parser.add_argument("--request-delay", type=float, default=0.05, help="seconds between paginated kline requests")
+    parser.add_argument("--retry-attempts", type=int, default=4, help="request retry attempts, default: 4")
+    parser.add_argument("--retry-backoff", type=float, default=1.0, help="seconds multiplied by retry count")
+    parser.add_argument("--request-timeout", type=float, default=20, help="request timeout seconds")
     parser.add_argument("--kline-limit", type=int, default=1000, help="Binance kline page size")
+    parser.add_argument("--scan-workers", type=int, default=4, help="parallel symbols to scan, default: 4")
     parser.add_argument("--scan-interval-hours", type=float, default=4.0, help="background scan interval")
     parser.add_argument("--no-auto-scan", action="store_true", help="serve pages without starting background scans")
     return parser.parse_args()
@@ -1228,7 +957,11 @@ def main():
             symbols=symbols,
             max_symbols=args.max_symbols,
             request_delay=args.request_delay,
+            retry_attempts=args.retry_attempts,
+            retry_backoff=args.retry_backoff,
+            request_timeout=args.request_timeout,
             kline_limit=args.kline_limit,
+            scan_workers=args.scan_workers,
             interval_hours=args.scan_interval_hours,
         )
         handler.scanner = scanner
@@ -1240,7 +973,6 @@ def main():
     if scanner:
         scanner.start()
     print(f"ATH/ATL page: http://{args.host}:{args.port}/")
-    print(f"Breakouts page: http://{args.host}:{args.port}/breakouts")
     if scanner:
         print("Background ATH/ATL scan: enabled")
     else:

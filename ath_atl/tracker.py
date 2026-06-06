@@ -1,7 +1,9 @@
 import argparse
 import json
 import sqlite3
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,15 +55,38 @@ MARKETS = {
 
 
 class BinanceClient:
-    def __init__(self, request_delay=0.05):
+    def __init__(self, request_delay=0.05, retry_attempts=4, retry_backoff=1.0, timeout=20):
         self.session = requests.Session()
         self.request_delay = request_delay
+        self.retry_attempts = max(1, retry_attempts)
+        self.retry_backoff = retry_backoff
+        self.timeout = timeout
+
+    def clone(self):
+        return BinanceClient(
+            request_delay=self.request_delay,
+            retry_attempts=self.retry_attempts,
+            retry_backoff=self.retry_backoff,
+            timeout=self.timeout,
+        )
+
+    def get_json(self, url, params=None):
+        attempts = self.retry_attempts
+        for attempt in range(1, attempts + 1):
+            try:
+                resp = self.session.get(url, params=params, timeout=self.timeout)
+                resp.raise_for_status()
+                return resp.json()
+            except (requests.RequestException, ValueError) as exc:
+                if attempt >= attempts:
+                    raise
+                sleep_seconds = self.retry_backoff * attempt
+                print(f"request failed {attempt}/{attempts}: {exc}; retrying in {sleep_seconds:.1f}s")
+                time.sleep(sleep_seconds)
 
     def get_usdt_symbols(self, market_type):
         config = MARKETS[market_type]
-        resp = self.session.get(f"{config.base_url}{config.exchange_info_path}", timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
+        data = self.get_json(f"{config.base_url}{config.exchange_info_path}")
         symbols = []
 
         for item in data.get("symbols", []):
@@ -82,9 +107,7 @@ class BinanceClient:
             if next_start is not None:
                 params["startTime"] = next_start
 
-            resp = self.session.get(f"{config.base_url}{config.klines_path}", params=params, timeout=15)
-            resp.raise_for_status()
-            rows = resp.json()
+            rows = self.get_json(f"{config.base_url}{config.klines_path}", params=params)
             if not rows:
                 break
 
@@ -109,31 +132,35 @@ class ATHATLStore:
     def __init__(self, db_path=DEFAULT_DB_PATH):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.db_path)
+        self.lock = threading.RLock()
+        self.conn = sqlite3.connect(self.db_path, timeout=30, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.create_tables()
 
     def create_tables(self):
-        self.conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS ath_atl (
-                market_type TEXT NOT NULL,
-                symbol TEXT NOT NULL,
-                current_price REAL,
-                ath_price REAL NOT NULL,
-                atl_price REAL NOT NULL,
-                ath_date TEXT,
-                atl_date TEXT,
-                first_kline_open_time INTEGER NOT NULL DEFAULT 0,
-                first_kline_date TEXT,
-                last_kline_open_time INTEGER NOT NULL DEFAULT 0,
-                updated_at TEXT NOT NULL,
-                PRIMARY KEY (market_type, symbol)
+        with self.lock:
+            self.conn.execute("PRAGMA busy_timeout = 30000")
+            self.conn.execute("PRAGMA journal_mode = WAL")
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ath_atl (
+                    market_type TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    current_price REAL,
+                    ath_price REAL NOT NULL,
+                    atl_price REAL NOT NULL,
+                    ath_date TEXT,
+                    atl_date TEXT,
+                    first_kline_open_time INTEGER NOT NULL DEFAULT 0,
+                    first_kline_date TEXT,
+                    last_kline_open_time INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (market_type, symbol)
+                )
+                """
             )
-            """
-        )
-        self.ensure_columns()
-        self.conn.commit()
+            self.ensure_columns()
+            self.conn.commit()
 
     def ensure_columns(self):
         columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(ath_atl)").fetchall()}
@@ -155,28 +182,30 @@ class ATHATLStore:
                 raise
 
     def get_record(self, market_type, symbol):
-        row = self.conn.execute(
-            """
-            SELECT
-                market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
-            FROM ath_atl
-            WHERE market_type = ? AND symbol = ?
-            """,
-            (market_type, symbol),
-        ).fetchone()
+        with self.lock:
+            row = self.conn.execute(
+                """
+                SELECT
+                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
+                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                FROM ath_atl
+                WHERE market_type = ? AND symbol = ?
+                """,
+                (market_type, symbol),
+            ).fetchone()
         return dict(row) if row else None
 
     def list_records(self):
-        rows = self.conn.execute(
-            """
-            SELECT
-                market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
-            FROM ath_atl
-            ORDER BY market_type, symbol
-            """
-        ).fetchall()
+        with self.lock:
+            rows = self.conn.execute(
+                """
+                SELECT
+                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
+                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                FROM ath_atl
+                ORDER BY market_type, symbol
+                """
+            ).fetchall()
         return [dict(row) for row in rows]
 
     def upsert_record(
@@ -192,49 +221,53 @@ class ATHATLStore:
         first_kline_date,
         last_kline_open_time,
     ):
-        self.conn.execute(
-            """
-            INSERT INTO ath_atl (
-                market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT INTO ath_atl (
+                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
+                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(market_type, symbol) DO UPDATE SET
+                    current_price = excluded.current_price,
+                    ath_price = excluded.ath_price,
+                    atl_price = excluded.atl_price,
+                    ath_date = excluded.ath_date,
+                    atl_date = excluded.atl_date,
+                    first_kline_open_time = excluded.first_kline_open_time,
+                    first_kline_date = excluded.first_kline_date,
+                    last_kline_open_time = excluded.last_kline_open_time,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    market_type,
+                    symbol,
+                    current_price,
+                    ath_price,
+                    atl_price,
+                    ath_date,
+                    atl_date,
+                    first_kline_open_time,
+                    first_kline_date,
+                    last_kline_open_time,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                ),
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(market_type, symbol) DO UPDATE SET
-                current_price = excluded.current_price,
-                ath_price = excluded.ath_price,
-                atl_price = excluded.atl_price,
-                ath_date = excluded.ath_date,
-                atl_date = excluded.atl_date,
-                first_kline_open_time = excluded.first_kline_open_time,
-                first_kline_date = excluded.first_kline_date,
-                last_kline_open_time = excluded.last_kline_open_time,
-                updated_at = excluded.updated_at
-            """,
-            (
-                market_type,
-                symbol,
-                current_price,
-                ath_price,
-                atl_price,
-                ath_date,
-                atl_date,
-                first_kline_open_time,
-                first_kline_date,
-                last_kline_open_time,
-                datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            ),
-        )
-        self.conn.commit()
+            self.conn.commit()
 
     def close(self):
-        self.conn.close()
+        with self.lock:
+            self.conn.close()
 
 
 class ATHATLTracker:
-    def __init__(self, client=None, store=None, kline_limit=1000):
+    def __init__(self, client=None, store=None, kline_limit=1000, scan_workers=4):
         self.client = client or BinanceClient()
         self.store = store or ATHATLStore()
         self.kline_limit = kline_limit
+        self.scan_workers = max(1, int(scan_workers or 1))
+        self.thread_local = threading.local()
 
     def scan(self, market_types, symbols=None, max_symbols=None):
         breakouts = []
@@ -242,18 +275,65 @@ class ATHATLTracker:
 
         for market_type in market_types:
             market_symbols = self.resolve_symbols(market_type, symbols, max_symbols)
-            summary[market_type] = {"symbols": len(market_symbols), "processed": 0, "breakouts": 0}
-
-            for index, symbol in enumerate(market_symbols, 1):
-                symbol_breakouts = self.scan_symbol(market_type, symbol)
-                breakouts.extend(symbol_breakouts)
-                summary[market_type]["processed"] += 1
-                summary[market_type]["breakouts"] += len(symbol_breakouts)
-
-                if index % 50 == 0:
-                    print(f"{market_type}: {index}/{len(market_symbols)} symbols processed")
+            market_breakouts, market_summary = self.scan_market(market_type, market_symbols)
+            breakouts.extend(market_breakouts)
+            summary[market_type] = market_summary
 
         return breakouts, summary
+
+    def scan_market(self, market_type, market_symbols):
+        breakouts = []
+        summary = {
+            "symbols": len(market_symbols),
+            "processed": 0,
+            "breakouts": 0,
+            "errors": 0,
+            "failed_symbols": [],
+        }
+
+        if self.scan_workers <= 1 or len(market_symbols) <= 1:
+            for index, symbol in enumerate(market_symbols, 1):
+                self.scan_one_symbol(market_type, symbol, breakouts, summary)
+                self.print_progress(market_type, index, len(market_symbols))
+            return breakouts, summary
+
+        max_workers = min(self.scan_workers, len(market_symbols))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(self.scan_symbol, market_type, symbol): symbol for symbol in market_symbols}
+            for index, future in enumerate(as_completed(futures), 1):
+                symbol = futures[future]
+                try:
+                    symbol_breakouts = future.result()
+                except Exception as exc:
+                    self.record_symbol_error(market_type, symbol, exc, summary)
+                else:
+                    self.record_symbol_success(symbol_breakouts, breakouts, summary)
+                self.print_progress(market_type, index, len(market_symbols))
+
+        return breakouts, summary
+
+    def scan_one_symbol(self, market_type, symbol, breakouts, summary):
+        try:
+            symbol_breakouts = self.scan_symbol(market_type, symbol)
+        except Exception as exc:
+            self.record_symbol_error(market_type, symbol, exc, summary)
+        else:
+            self.record_symbol_success(symbol_breakouts, breakouts, summary)
+
+    def record_symbol_success(self, symbol_breakouts, breakouts, summary):
+        breakouts.extend(symbol_breakouts)
+        summary["processed"] += 1
+        summary["breakouts"] += len(symbol_breakouts)
+
+    def record_symbol_error(self, market_type, symbol, exc, summary):
+        summary["errors"] += 1
+        if len(summary["failed_symbols"]) < 20:
+            summary["failed_symbols"].append({"symbol": symbol, "error": str(exc)})
+        print(f"{market_type} {symbol} failed: {exc}")
+
+    def print_progress(self, market_type, index, total):
+        if index % 50 == 0 or index == total:
+            print(f"{market_type}: {index}/{total} symbols scanned")
 
     def resolve_symbols(self, market_type, symbols, max_symbols):
         if symbols:
@@ -269,7 +349,14 @@ class ATHATLTracker:
     def scan_symbol(self, market_type, symbol):
         record = self.store.get_record(market_type, symbol)
         start_time = self.start_time_for(record)
-        klines = list(self.client.iter_daily_klines(market_type, symbol, start_time=start_time, limit=self.kline_limit))
+        klines = list(
+            self.worker_client().iter_daily_klines(
+                market_type,
+                symbol,
+                start_time=start_time,
+                limit=self.kline_limit,
+            )
+        )
         if not klines:
             return []
 
@@ -339,6 +426,16 @@ class ATHATLTracker:
             return 0
         return max(0, int(record["last_kline_open_time"]) - DAY_MS)
 
+    def worker_client(self):
+        if self.scan_workers <= 1:
+            return self.client
+
+        client = getattr(self.thread_local, "client", None)
+        if client is None:
+            client = self.client.clone()
+            self.thread_local.client = client
+        return client
+
 
 def new_breakout(kline, market_type, symbol, breakout_type, price, previous_price):
     return {
@@ -399,7 +496,11 @@ def parse_args():
     parser.add_argument("--breakouts-output", default=str(DEFAULT_BREAKOUTS_PATH), help="daily breakouts JSON path")
     parser.add_argument("--snapshot-output", default=str(DEFAULT_SNAPSHOT_PATH), help="ATH/ATL snapshot JSON path")
     parser.add_argument("--request-delay", type=float, default=0.05, help="seconds between paginated kline requests")
+    parser.add_argument("--retry-attempts", type=int, default=4, help="request retry attempts, default: 4")
+    parser.add_argument("--retry-backoff", type=float, default=1.0, help="seconds multiplied by retry count")
+    parser.add_argument("--request-timeout", type=float, default=20, help="request timeout seconds")
     parser.add_argument("--kline-limit", type=int, default=1000, help="Binance kline page size")
+    parser.add_argument("--scan-workers", type=int, default=4, help="parallel symbols to scan, default: 4")
     return parser.parse_args()
 
 
@@ -410,8 +511,13 @@ def main():
 
     symbols = args.symbols.split(",") if args.symbols else None
     store = ATHATLStore(args.db_path)
-    client = BinanceClient(request_delay=args.request_delay)
-    tracker = ATHATLTracker(client=client, store=store, kline_limit=args.kline_limit)
+    client = BinanceClient(
+        request_delay=args.request_delay,
+        retry_attempts=args.retry_attempts,
+        retry_backoff=args.retry_backoff,
+        timeout=args.request_timeout,
+    )
+    tracker = ATHATLTracker(client=client, store=store, kline_limit=args.kline_limit, scan_workers=args.scan_workers)
 
     try:
         breakouts, summary = tracker.scan(

@@ -8,7 +8,27 @@
 python3 -m ath_atl.web
 ```
 
-网页启动后会立即在后台跑一次 ATH/ATL 扫描，之后默认每 24 小时扫描一次。
+网页启动后会立即在后台跑一次 ATH/ATL 扫描，之后默认每 4 小时扫描一次。
+页面会每 30 秒重新读取本地数据，扫描状态每 5 秒刷新一次。
+
+如果想让后台扫描更频繁，可以调小间隔：
+
+```bash
+python3 -m ath_atl.web --scan-interval-hours 1
+```
+
+默认会同时扫描 4 个 symbol，比逐个扫快很多。如果 Binance 连接不稳定，可以降回单线程；如果网络很稳，可以提高一点：
+
+```bash
+python3 -m ath_atl.web --scan-workers 1
+python3 -m ath_atl.web --scan-workers 8
+```
+
+如果遇到临时 SSL EOF / timeout，可以增加重试次数：
+
+```bash
+python3 -m ath_atl.web --retry-attempts 6 --retry-backoff 2
+```
 
 小范围测试可以只扫一个币：
 
@@ -26,7 +46,6 @@ python3 -m ath_atl.web --no-auto-scan
 
 ```text
 http://127.0.0.1:8788/
-http://127.0.0.1:8788/breakouts
 ```
 
 ## 手动扫描
