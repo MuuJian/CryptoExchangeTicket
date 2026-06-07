@@ -20,6 +20,31 @@
         "uriFormat": "%s",
         "action": "openExternally"
       }
+  },
+  {
+    "name": "ath_atl",
+    "type": "python",
+    "request": "launch",
+    "module": "ath_atl.web",
+    "cwd": "${workspaceFolder}",
+    "console": "integratedTerminal",
+    "justMyCode": true,
+    "args": [
+      "--port",
+      "8788",
+      "--scan-workers",
+      "1",
+      "--retry-attempts",
+      "6",
+      "--retry-backoff",
+      "2"
+    ],
+    "serverReadyAction": {
+      "pattern": "ATH/ATL page: (http://\\S+)",
+      "uriFormat": "%s",
+      "action": "openExternally"
     }
+  }
+
   ]
 }

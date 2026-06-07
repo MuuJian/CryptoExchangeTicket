@@ -573,7 +573,7 @@ class BackgroundScanner:
         retry_backoff=1.0,
         request_timeout=20,
         kline_limit=1000,
-        scan_workers=4,
+        scan_workers=2,
         interval_hours=24.0,
     ):
         self.db_path = Path(db_path)
@@ -639,7 +639,10 @@ class BackgroundScanner:
             error=None,
             warning=None,
             next_scan_at=None,
+            summary=empty_summary(self.market_types),
+            breakouts=0,
         )
+        write_breakouts_json(self.breakouts_path, [], empty_summary(self.market_types))
         print(f"ATH/ATL scan started at {started_at}")
 
         store = None
@@ -772,10 +775,7 @@ def dedupe_records_by_symbol(records):
 
 
 def normalized_record(row):
-    item = dict(row)
-    if not item.get("first_kline_date"):
-        item["first_kline_date"] = first_available_date(item)
-    return item
+    return dict(row)
 
 
 def record_sort_key(row):
@@ -783,31 +783,11 @@ def record_sort_key(row):
     if first_open_time > 0:
         start_key = first_open_time
     else:
-        start_key = date_to_sort_key(first_available_date(row))
+        start_key = 9999999999999
 
     # If the historical start is identical, prefer spot for a stable display.
     market_priority = 0 if row.get("market_type") == "spot" else 1
     return (start_key, market_priority)
-
-
-def first_available_date(row):
-    dates = [
-        row.get("first_kline_date"),
-        row.get("ath_date"),
-        row.get("atl_date"),
-    ]
-    valid_dates = [date for date in dates if date]
-    return min(valid_dates) if valid_dates else None
-
-
-def date_to_sort_key(value):
-    if not value:
-        return 9999999999999
-    try:
-        dt = datetime.fromisoformat(str(value)[:10]).replace(tzinfo=timezone.utc)
-        return int(dt.timestamp() * 1000)
-    except ValueError:
-        return 9999999999999
 
 
 def load_breakouts(path, db_path=None):
@@ -820,6 +800,15 @@ def load_breakouts(path, db_path=None):
     except json.JSONDecodeError:
         return {"generated_at": None, "date": None, "summary": {}, "breakouts": []}
 
+    if payload.get("date") != today_utc():
+        return {
+            "generated_at": payload.get("generated_at"),
+            "date": payload.get("date"),
+            "summary": {},
+            "all_breakouts_count": 0,
+            "breakouts": [],
+        }
+
     breakouts = dedupe_breakouts(payload.get("breakouts", []), db_path)
     payload["all_breakouts_count"] = len(breakouts)
     payload["breakouts"] = filter_today_breakouts(breakouts)
@@ -827,8 +816,12 @@ def load_breakouts(path, db_path=None):
 
 
 def filter_today_breakouts(breakouts):
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = today_utc()
     return [row for row in breakouts if row.get("date") == today]
+
+
+def today_utc():
+    return datetime.now(timezone.utc).date().isoformat()
 
 
 def dedupe_breakouts(breakouts, db_path=None):
@@ -910,6 +903,19 @@ def summary_warning(summary):
     return f"{error_count} symbols failed; scan continued"
 
 
+def empty_summary(market_types):
+    return {
+        market_type: {
+            "symbols": 0,
+            "processed": 0,
+            "breakouts": 0,
+            "errors": 0,
+            "failed_symbols": [],
+        }
+        for market_type in market_types
+    }
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Serve ATH/ATL records and daily breakouts")
     parser.add_argument("--host", default="127.0.0.1", help="bind host")
@@ -932,7 +938,7 @@ def parse_args():
     parser.add_argument("--retry-backoff", type=float, default=1.0, help="seconds multiplied by retry count")
     parser.add_argument("--request-timeout", type=float, default=20, help="request timeout seconds")
     parser.add_argument("--kline-limit", type=int, default=1000, help="Binance kline page size")
-    parser.add_argument("--scan-workers", type=int, default=4, help="parallel symbols to scan, default: 4")
+    parser.add_argument("--scan-workers", type=int, default=2, help="parallel symbols to scan, default: 2")
     parser.add_argument("--scan-interval-hours", type=float, default=4.0, help="background scan interval")
     parser.add_argument("--no-auto-scan", action="store_true", help="serve pages without starting background scans")
     return parser.parse_args()

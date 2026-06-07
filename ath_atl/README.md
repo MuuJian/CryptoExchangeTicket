@@ -17,11 +17,11 @@ python3 -m ath_atl.web
 python3 -m ath_atl.web --scan-interval-hours 1
 ```
 
-默认会同时扫描 4 个 symbol，比逐个扫快很多。如果 Binance 连接不稳定，可以降回单线程；如果网络很稳，可以提高一点：
+默认会同时扫描 2 个 symbol，比逐个扫快一些，也不容易触发 Binance 限频。如果遇到 `429` / `418`，先降回单线程；网络很稳时再提高一点：
 
 ```bash
 python3 -m ath_atl.web --scan-workers 1
-python3 -m ath_atl.web --scan-workers 8
+python3 -m ath_atl.web --scan-workers 4
 ```
 
 如果遇到临时 SSL EOF / timeout，可以增加重试次数：

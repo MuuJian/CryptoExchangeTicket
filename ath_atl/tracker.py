@@ -19,6 +19,16 @@ DEFAULT_DB_PATH = DATA_DIR / "ath_atl.db"
 DEFAULT_BREAKOUTS_PATH = DATA_DIR / "daily_breakouts.json"
 DEFAULT_SNAPSHOT_PATH = DATA_DIR / "ath_atl_snapshot.json"
 DEFAULT_STATUS_PATH = DATA_DIR / "scan_status.json"
+ATH_ATL_COLUMNS = [
+    "market_type",
+    "symbol",
+    "current_price",
+    "ath_price",
+    "atl_price",
+    "first_kline_open_time",
+    "last_kline_open_time",
+    "updated_at",
+]
 
 
 @dataclass
@@ -80,9 +90,22 @@ class BinanceClient:
             except (requests.RequestException, ValueError) as exc:
                 if attempt >= attempts:
                     raise
-                sleep_seconds = self.retry_backoff * attempt
+                sleep_seconds = self.retry_sleep_seconds(attempt, exc)
                 print(f"request failed {attempt}/{attempts}: {exc}; retrying in {sleep_seconds:.1f}s")
                 time.sleep(sleep_seconds)
+
+    def retry_sleep_seconds(self, attempt, exc):
+        response = getattr(exc, "response", None)
+        if response is not None and response.status_code in {418, 429}:
+            retry_after = response.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return max(float(retry_after), self.retry_backoff * attempt)
+                except ValueError:
+                    pass
+            multiplier = 20 if response.status_code == 418 else 5
+            return max(5.0, self.retry_backoff * attempt * multiplier)
+        return self.retry_backoff * attempt
 
     def get_usdt_symbols(self, market_type):
         config = MARKETS[market_type]
@@ -141,53 +164,76 @@ class ATHATLStore:
         with self.lock:
             self.conn.execute("PRAGMA busy_timeout = 30000")
             self.conn.execute("PRAGMA journal_mode = WAL")
-            self.conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ath_atl (
-                    market_type TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    current_price REAL,
-                    ath_price REAL NOT NULL,
-                    atl_price REAL NOT NULL,
-                    ath_date TEXT,
-                    atl_date TEXT,
-                    first_kline_open_time INTEGER NOT NULL DEFAULT 0,
-                    first_kline_date TEXT,
-                    last_kline_open_time INTEGER NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (market_type, symbol)
-                )
-                """
-            )
-            self.ensure_columns()
+            self.create_ath_atl_table()
+            self.migrate_schema()
             self.conn.commit()
 
-    def ensure_columns(self):
-        columns = {row["name"] for row in self.conn.execute("PRAGMA table_info(ath_atl)").fetchall()}
-        if "current_price" not in columns:
-            self.add_column_if_missing("current_price", "ALTER TABLE ath_atl ADD COLUMN current_price REAL")
-        if "first_kline_open_time" not in columns:
-            self.add_column_if_missing(
-                "first_kline_open_time",
-                "ALTER TABLE ath_atl ADD COLUMN first_kline_open_time INTEGER NOT NULL DEFAULT 0",
+    def create_ath_atl_table(self):
+        self.conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ath_atl (
+                market_type TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                current_price REAL,
+                ath_price REAL NOT NULL,
+                atl_price REAL NOT NULL,
+                first_kline_open_time INTEGER NOT NULL DEFAULT 0,
+                last_kline_open_time INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (market_type, symbol)
             )
-        if "first_kline_date" not in columns:
-            self.add_column_if_missing("first_kline_date", "ALTER TABLE ath_atl ADD COLUMN first_kline_date TEXT")
+            """
+        )
 
-    def add_column_if_missing(self, column_name, sql):
-        try:
-            self.conn.execute(sql)
-        except sqlite3.OperationalError as exc:
-            if "duplicate column name" not in str(exc).lower():
-                raise
+    def migrate_schema(self):
+        columns = [row["name"] for row in self.conn.execute("PRAGMA table_info(ath_atl)").fetchall()]
+        if columns == ATH_ATL_COLUMNS:
+            return
+
+        legacy_table = f"ath_atl_legacy_{int(time.time())}"
+        self.conn.execute(f"ALTER TABLE ath_atl RENAME TO {legacy_table}")
+        self.create_ath_atl_table()
+        self.copy_legacy_rows(legacy_table, columns)
+        self.conn.execute(f"DROP TABLE {legacy_table}")
+
+    def copy_legacy_rows(self, legacy_table, legacy_columns):
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        expressions = {
+            "market_type": "market_type" if "market_type" in legacy_columns else "'unknown'",
+            "symbol": "symbol",
+            "current_price": "current_price" if "current_price" in legacy_columns else "NULL",
+            "ath_price": "ath_price",
+            "atl_price": "atl_price",
+            "first_kline_open_time": (
+                "COALESCE(first_kline_open_time, 0)" if "first_kline_open_time" in legacy_columns else "0"
+            ),
+            "last_kline_open_time": (
+                "COALESCE(last_kline_open_time, 0)" if "last_kline_open_time" in legacy_columns else "0"
+            ),
+            "updated_at": "COALESCE(updated_at, ?)" if "updated_at" in legacy_columns else "?",
+        }
+
+        selected = ", ".join(expressions[column] for column in ATH_ATL_COLUMNS)
+        self.conn.execute(
+            f"""
+            INSERT OR REPLACE INTO ath_atl (
+                market_type, symbol, current_price, ath_price, atl_price,
+                first_kline_open_time, last_kline_open_time, updated_at
+            )
+            SELECT {selected}
+            FROM {legacy_table}
+            WHERE symbol IS NOT NULL AND ath_price IS NOT NULL AND atl_price IS NOT NULL
+            """,
+            (now,),
+        )
 
     def get_record(self, market_type, symbol):
         with self.lock:
             row = self.conn.execute(
                 """
                 SELECT
-                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                    market_type, symbol, current_price, ath_price, atl_price,
+                    first_kline_open_time, last_kline_open_time, updated_at
                 FROM ath_atl
                 WHERE market_type = ? AND symbol = ?
                 """,
@@ -200,8 +246,8 @@ class ATHATLStore:
             rows = self.conn.execute(
                 """
                 SELECT
-                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                    market_type, symbol, current_price, ath_price, atl_price,
+                    first_kline_open_time, last_kline_open_time, updated_at
                 FROM ath_atl
                 ORDER BY market_type, symbol
                 """
@@ -215,28 +261,22 @@ class ATHATLStore:
         current_price,
         ath_price,
         atl_price,
-        ath_date,
-        atl_date,
         first_kline_open_time,
-        first_kline_date,
         last_kline_open_time,
     ):
         with self.lock:
             self.conn.execute(
                 """
                 INSERT INTO ath_atl (
-                    market_type, symbol, current_price, ath_price, atl_price, ath_date, atl_date,
-                    first_kline_open_time, first_kline_date, last_kline_open_time, updated_at
+                    market_type, symbol, current_price, ath_price, atl_price,
+                    first_kline_open_time, last_kline_open_time, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(market_type, symbol) DO UPDATE SET
                     current_price = excluded.current_price,
                     ath_price = excluded.ath_price,
                     atl_price = excluded.atl_price,
-                    ath_date = excluded.ath_date,
-                    atl_date = excluded.atl_date,
                     first_kline_open_time = excluded.first_kline_open_time,
-                    first_kline_date = excluded.first_kline_date,
                     last_kline_open_time = excluded.last_kline_open_time,
                     updated_at = excluded.updated_at
                 """,
@@ -246,10 +286,7 @@ class ATHATLStore:
                     current_price,
                     ath_price,
                     atl_price,
-                    ath_date,
-                    atl_date,
                     first_kline_open_time,
-                    first_kline_date,
                     last_kline_open_time,
                     datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 ),
@@ -262,7 +299,7 @@ class ATHATLStore:
 
 
 class ATHATLTracker:
-    def __init__(self, client=None, store=None, kline_limit=1000, scan_workers=4):
+    def __init__(self, client=None, store=None, kline_limit=1000, scan_workers=2):
         self.client = client or BinanceClient()
         self.store = store or ATHATLStore()
         self.kline_limit = kline_limit
@@ -327,8 +364,10 @@ class ATHATLTracker:
 
     def record_symbol_error(self, market_type, symbol, exc, summary):
         summary["errors"] += 1
-        if len(summary["failed_symbols"]) < 20:
-            summary["failed_symbols"].append({"symbol": symbol, "error": str(exc)})
+        error = str(exc)
+        already_saved = any(item["symbol"] == symbol and item["error"] == error for item in summary["failed_symbols"])
+        if not already_saved and len(summary["failed_symbols"]) < 20:
+            summary["failed_symbols"].append({"symbol": symbol, "error": error})
         print(f"{market_type} {symbol} failed: {exc}")
 
     def print_progress(self, market_type, index, total):
@@ -340,6 +379,8 @@ class ATHATLTracker:
             market_symbols = [symbol.strip().upper() for symbol in symbols if symbol.strip()]
         else:
             market_symbols = self.client.get_usdt_symbols(market_type)
+
+        market_symbols = list(dict.fromkeys(market_symbols))
 
         if max_symbols is not None:
             market_symbols = market_symbols[:max_symbols]
@@ -363,19 +404,13 @@ class ATHATLTracker:
         if record:
             ath_price = float(record["ath_price"])
             atl_price = float(record["atl_price"])
-            ath_date = record["ath_date"]
-            atl_date = record["atl_date"]
             first_kline_open_time = int(record.get("first_kline_open_time") or 0)
-            first_kline_date = record.get("first_kline_date")
             emit_breakouts = True
         else:
             first = klines[0]
             ath_price = first.high
             atl_price = first.low
-            ath_date = first.date
-            atl_date = first.date
             first_kline_open_time = first.open_time
-            first_kline_date = first.date
             emit_breakouts = False
 
         breakouts = []
@@ -385,23 +420,18 @@ class ATHATLTracker:
         for kline in klines:
             if not first_kline_open_time or kline.open_time < first_kline_open_time:
                 first_kline_open_time = kline.open_time
-                first_kline_date = kline.date
 
             if emit_breakouts and kline.high > ath_price:
                 breakouts.append(new_breakout(kline, market_type, symbol, "new_high", kline.high, ath_price))
                 ath_price = kline.high
-                ath_date = kline.date
             elif kline.high > ath_price:
                 ath_price = kline.high
-                ath_date = kline.date
 
             if emit_breakouts and kline.low < atl_price:
                 breakouts.append(new_breakout(kline, market_type, symbol, "new_low", kline.low, atl_price))
                 atl_price = kline.low
-                atl_date = kline.date
             elif kline.low < atl_price:
                 atl_price = kline.low
-                atl_date = kline.date
 
             last_kline_open_time = max(last_kline_open_time, kline.open_time)
 
@@ -411,10 +441,7 @@ class ATHATLTracker:
             current_price=current_price,
             ath_price=ath_price,
             atl_price=atl_price,
-            ath_date=ath_date,
-            atl_date=atl_date,
             first_kline_open_time=first_kline_open_time,
-            first_kline_date=first_kline_date,
             last_kline_open_time=last_kline_open_time,
         )
         return breakouts
@@ -500,7 +527,7 @@ def parse_args():
     parser.add_argument("--retry-backoff", type=float, default=1.0, help="seconds multiplied by retry count")
     parser.add_argument("--request-timeout", type=float, default=20, help="request timeout seconds")
     parser.add_argument("--kline-limit", type=int, default=1000, help="Binance kline page size")
-    parser.add_argument("--scan-workers", type=int, default=4, help="parallel symbols to scan, default: 4")
+    parser.add_argument("--scan-workers", type=int, default=2, help="parallel symbols to scan, default: 2")
     return parser.parse_args()
 
 
