@@ -137,7 +137,8 @@ class BinanceOIMonitor:
             resp.raise_for_status()
             data = resp.json()
             return float(data["price"])
-        except Exception:
+        except Exception as e:
+            print(f"{symbol} 價格獲取失敗: {e}")
             return None
 
     def collect_interval_changes(self):
@@ -146,26 +147,35 @@ class BinanceOIMonitor:
             return []
 
         print(f"{now()} 掃描 {len(symbols)} 個 USDT 永續合約...")
-        current_snapshot = {}
+        current_snapshot = {
+            symbol: self.previous_snapshot[symbol]
+            for symbol in symbols
+            if symbol in self.previous_snapshot
+        }
         changes = []
+        failed_symbols = 0
 
         for index, symbol in enumerate(symbols, 1):
             current_oi = self.get_open_interest(symbol)
-            price = self.get_price(symbol)
             if current_oi is None:
+                failed_symbols += 1
                 continue
+
+            previous_item = self.previous_snapshot.get(symbol)
+            previous_price = previous_item.get("price") if previous_item else None
+            price = self.get_price(symbol)
+            if price is None:
+                price = previous_price
 
             current_snapshot[symbol] = {
                 "oi": current_oi,
                 "price": price,
             }
 
-            previous_item = self.previous_snapshot.get(symbol)
             previous_oi = previous_item.get("oi", 0) if previous_item else 0
             if previous_oi <= 0:
                 continue
 
-            previous_price = previous_item.get("price")
             current_oi_usdt = current_oi * price if price else None
             change_percent = (current_oi - previous_oi) / previous_oi * 100
             price_change_percent = None
@@ -190,6 +200,8 @@ class BinanceOIMonitor:
 
         self.save_snapshot(current_snapshot)
         self.previous_snapshot = current_snapshot
+        if failed_symbols:
+            print(f"{now()} 本輪有 {failed_symbols} 個合約 OI 獲取失敗，已保留上一輪快照。")
         print(f"{now()} 本輪完成，有效 OI 變化數據 {len(changes)} 個。")
         return sorted(changes, key=lambda item: abs(item["change_percent"]), reverse=True)
 

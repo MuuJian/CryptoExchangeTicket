@@ -4,7 +4,7 @@ TradingView watchlist tools and Binance OI monitor.
 
 ## Run
 
-Generate Binance watchlists and start the OI monitor:
+Generate Binance spot and futures watchlists:
 
 ```bash
 python3 main.py

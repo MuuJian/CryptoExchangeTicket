@@ -25,7 +25,7 @@ def get_spot_pairs():
     usdt_pairs = [
         f"Bybit:{symbol['symbol']}"
         for symbol in instruments
-        if symbol.get("quoteCoin") == "USDT"
+        if symbol.get("quoteCoin") == "USDT" and symbol.get("status") == "Trading"
     ]
 
     save_lines(

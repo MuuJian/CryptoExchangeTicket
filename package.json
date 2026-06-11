@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/check-dashboard.mjs",
+    "lint": "node scripts/check-dashboard.mjs"
+  }
+}

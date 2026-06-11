@@ -28,7 +28,7 @@ def get_spot_pairs():
     usdt_pairs = [
         f"okx:{symbol['baseCcy']}{symbol['quoteCcy']}"
         for symbol in data
-        if symbol.get("quoteCcy") == "USDT"
+        if symbol.get("quoteCcy") == "USDT" and symbol.get("state") == "live"
     ]
 
     save_lines(
