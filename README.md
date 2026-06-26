@@ -10,6 +10,8 @@ Generate Binance spot and futures watchlists:
 python3 main.py
 ```
 
+Watchlist files are written under `exchange_ticket/ticket/`.
+
 Run the Binance OI monitor directly:
 
 ```bash

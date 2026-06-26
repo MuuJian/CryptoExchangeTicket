@@ -1,7 +1,8 @@
 from pathlib import Path
 
 
-DEFAULT_OUTPUT_DIR = Path("ticket")
+PACKAGE_ROOT = Path(__file__).resolve().parent
+DEFAULT_OUTPUT_DIR = PACKAGE_ROOT / "ticket"
 
 
 def save_lines(lines, filename, folder=DEFAULT_OUTPUT_DIR, empty_message=None, success_message=None):

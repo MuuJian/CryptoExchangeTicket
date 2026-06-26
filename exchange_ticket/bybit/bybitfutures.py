@@ -1,16 +1,16 @@
 from pybit.unified_trading import HTTP
 
 try:
-    from exchange_ticket.utils import save_lines
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchange_ticket.utils import save_lines
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_lines
 
 
-OUTPUT_DIR = "ticket"
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 
 def get_futures_pairs():

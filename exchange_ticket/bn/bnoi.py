@@ -1,7 +1,13 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 import requests
+
+try:
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR
+except ImportError:
+    DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "ticket"
 
 
 class BinanceFutures:
@@ -65,8 +71,9 @@ class BinanceFutures:
             return None
 
 
-def export_reports(results, folder="ticket"):
-    os.makedirs(folder, exist_ok=True)
+def export_reports(results, folder=DEFAULT_OUTPUT_DIR):
+    output_dir = Path(folder)
+    os.makedirs(output_dir, exist_ok=True)
 
     configs = [
         {"key": "ch_7d", "name": "7日增幅", "suffix": "7d"},
@@ -75,7 +82,7 @@ def export_reports(results, folder="ticket"):
 
     for config in configs:
         sorted_data = sorted(results, key=lambda item: item[config["key"]], reverse=True)
-        file_path = f"{folder}/oi_rank_{config['suffix']}.txt"
+        file_path = output_dir / f"oi_rank_{config['suffix']}.txt"
 
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"幣安合約 OI 報告 (USDT價值) - 排序基準: {config['name']}\n")

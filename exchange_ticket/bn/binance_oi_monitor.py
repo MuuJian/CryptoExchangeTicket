@@ -3,11 +3,17 @@ import json
 import os
 import time
 from datetime import datetime
+from pathlib import Path
 
 try:
     import requests
 except ModuleNotFoundError:
     requests = None
+
+try:
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR
+except ImportError:
+    DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parents[1] / "ticket"
 
 
 def load_env_file(file_path=".env"):
@@ -60,7 +66,7 @@ class BinanceOIMonitor:
         self,
         alert_percent=10.0,
         notifier=None,
-        snapshot_file="ticket/bnoi_latest_snapshot.json",
+        snapshot_file=DEFAULT_OUTPUT_DIR / "bnoi_latest_snapshot.json",
     ):
         self.base_url = "https://fapi.binance.com"
         self.info_url = f"{self.base_url}/fapi/v1/exchangeInfo"

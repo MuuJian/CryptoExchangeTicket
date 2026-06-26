@@ -1,17 +1,17 @@
 import requests
 
 try:
-    from exchange_ticket.utils import save_lines
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchange_ticket.utils import save_lines
+    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_lines
 
 
 SYMBOLS_URL = "https://api.bitget.com/api/v2/spot/public/symbols"
-OUTPUT_DIR = "ticket"
+OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 
 def get_spot_pairs():

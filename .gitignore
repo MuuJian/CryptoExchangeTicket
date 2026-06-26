@@ -7,6 +7,7 @@ pyvenv.*
 
 # Runtime output and local config
 ticket/
+exchange_ticket/ticket/
 realtime_oi_dashboard/data/
 ath_atl/data/
 ath_atl/logs/
