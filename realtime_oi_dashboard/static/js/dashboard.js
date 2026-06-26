@@ -1,4 +1,5 @@
 import { createFilterBar } from "./components/FilterBar.js";
+import { createHighOi7dTable } from "./components/HighOi7dTable.js";
 import { createOiRankingTable } from "./components/OiRankingTable.js";
 import { createSortableHeaders } from "./components/SortableHeader.js";
 import { renderStatCards, renderWsState } from "./components/StatCard.js";
@@ -8,6 +9,7 @@ import { loadOiSnapshot, useOiRankingData } from "./hooks/useOiRankingData.js";
 import { useTableFilters } from "./hooks/useTableFilters.js";
 import { useTableSort } from "./hooks/useTableSort.js";
 import {
+  buildHighOi7dRows,
   buildVisibleRows,
   getHeatMax,
   isPriceDrivenView,
@@ -28,6 +30,7 @@ const elements = {
   volumeFilter: document.getElementById("volumeFilter"),
   limitSelect: document.getElementById("limitSelect"),
   rankBody: document.getElementById("rankBody"),
+  highOi7dBody: document.getElementById("highOi7dBody"),
   sortableHeaders: document.querySelectorAll("th[data-sort]"),
 };
 
@@ -44,6 +47,7 @@ const sort = useTableSort();
 let heatMax = getHeatMax([]);
 let fullRenderFrame = 0;
 let patchFrame = 0;
+let highOi7dFrame = 0;
 let pendingPatchSymbols = new Set();
 let visibleRowsCache = {
   deps: "",
@@ -53,6 +57,10 @@ let visibleRowsCache = {
 const table = createOiRankingTable({
   tbody: elements.rankBody,
   getRowBySymbol: rankingData.getRow,
+});
+
+const highOi7dTable = createHighOi7dTable({
+  tbody: elements.highOi7dBody,
 });
 
 const filterBar = createFilterBar({
@@ -82,6 +90,7 @@ const priceSocket = useBinancePriceSocket({
     }
 
     scheduleRowPatch(affectedSymbols);
+    scheduleHighOi7dRender();
   },
 });
 
@@ -156,6 +165,7 @@ function renderFull() {
   const visibleRows = getVisibleRows();
   heatMax = getHeatMax(visibleRows);
   table.render(visibleRows, getRowRenderContext());
+  renderHighOi7d();
   filterBar.render();
   sortableHeaders.render();
 }
@@ -190,10 +200,26 @@ function getRowRenderContext() {
   };
 }
 
+function scheduleHighOi7dRender() {
+  if (fullRenderFrame || highOi7dFrame) return;
+  highOi7dFrame = window.requestAnimationFrame(() => {
+    highOi7dFrame = 0;
+    renderHighOi7d();
+  });
+}
+
+function renderHighOi7d() {
+  highOi7dTable.render(buildHighOi7dRows(rankingData.getRows()));
+}
+
 function cancelPendingPatch() {
   if (patchFrame) {
     window.cancelAnimationFrame(patchFrame);
     patchFrame = 0;
+  }
+  if (highOi7dFrame) {
+    window.cancelAnimationFrame(highOi7dFrame);
+    highOi7dFrame = 0;
   }
   pendingPatchSymbols.clear();
 }

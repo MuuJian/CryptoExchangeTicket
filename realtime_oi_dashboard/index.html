@@ -162,6 +162,14 @@
       overflow: auto;
     }
 
+    .signal-panel {
+      margin-bottom: 12px;
+    }
+
+    .signal-wrap {
+      max-height: 220px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -289,6 +297,11 @@
     th:nth-child(9), td:nth-child(9) { width: 130px; }
     th:nth-child(10), td:nth-child(10) { width: 135px; }
 
+    .signal-table th:nth-child(1), .signal-table td:nth-child(1) { width: 160px; }
+    .signal-table th:nth-child(2), .signal-table td:nth-child(2) { width: 120px; }
+    .signal-table th:nth-child(3), .signal-table td:nth-child(3) { width: 140px; }
+    .signal-table th:nth-child(4), .signal-table td:nth-child(4) { width: 160px; }
+
     .pos { color: #05a846; }
     .neg { color: #d74646; }
     .empty { padding: 28px; text-align: left; color: var(--muted); }
@@ -327,6 +340,31 @@
       <div class="metric"><div class="label">价格连接</div><div class="value" id="wsState">-</div><div class="note">Binance WebSocket</div></div>
       <div class="metric"><div class="label">最大增仓</div><div class="value" id="topIncrease">-</div><div class="note" id="topIncreaseNote">OI change</div></div>
       <div class="metric"><div class="label">最大减仓</div><div class="value" id="topDecrease">-</div><div class="note" id="topDecreaseNote">OI change</div></div>
+    </section>
+
+    <section class="panel signal-panel">
+      <div class="toolbar">
+        <div>
+          <strong>7D OI &gt; 100%</strong>
+          <div class="sub">持仓(7d%) &gt; 100% 且持仓价值 &gt; $1000万。</div>
+        </div>
+      </div>
+
+      <div class="table-wrap signal-wrap">
+        <table class="signal-table">
+          <thead>
+            <tr>
+              <th>币种</th>
+              <th>价格</th>
+              <th>持仓(7d%)</th>
+              <th>持仓价值</th>
+            </tr>
+          </thead>
+          <tbody id="highOi7dBody">
+            <tr><td colspan="4" class="empty">等待 OI 快照。</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
 
     <section class="panel">

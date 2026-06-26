@@ -1,4 +1,5 @@
 import {
+  binanceFuturesUrl,
   formatCurrency,
   formatPercent,
   formatPrice,
@@ -28,6 +29,12 @@ export function createRankingRow(row, context) {
   symbolCell.append(symbolLink);
 
   const priceCell = document.createElement("td");
+  const priceLink = document.createElement("a");
+  priceLink.className = "symbol-link";
+  priceLink.target = "_blank";
+  priceLink.rel = "noopener noreferrer";
+  priceCell.append(priceLink);
+
   const priceChangeCell = document.createElement("td");
   const oiValueCell = document.createElement("td");
   const volumeCell = document.createElement("td");
@@ -52,7 +59,7 @@ export function createRankingRow(row, context) {
   tr._cells = {
     favoriteButton,
     symbolLink,
-    priceCell,
+    priceLink,
     priceChangeCell,
     oiValueCell,
     volumeCell,
@@ -74,9 +81,10 @@ export function updateRankingRow(tr, row, context) {
   cells.favoriteButton.classList.toggle("active", isFavorite);
   cells.favoriteButton.title = isFavorite ? "取消收藏" : "加入收藏";
 
-  cells.symbolLink.href = tradingViewUrl(row.symbol);
+  cells.symbolLink.href = binanceFuturesUrl(row.symbol);
   cells.symbolLink.textContent = row.symbol;
-  cells.priceCell.textContent = formatPrice(row.price);
+  cells.priceLink.href = tradingViewUrl(row.symbol);
+  cells.priceLink.textContent = formatPrice(row.price);
   cells.oiValueCell.textContent = formatCurrency(row.currentOiValue);
   cells.volumeCell.textContent = formatCurrency(row.volume24h);
   cells.changeValueCell.textContent = formatCurrency(row.changeValue);

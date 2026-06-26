@@ -91,6 +91,14 @@ export function buildVisibleRows(rows, filters, sortState, favorites) {
     .slice(0, Number(filters.limit || 99999));
 }
 
+export function buildHighOi7dRows(rows) {
+  return rows
+    .filter(row => Number(row.oi7dChangePercent || 0) > 100)
+    .filter(row => Number(row.currentOiValue || 0) > 10000000)
+    .slice()
+    .sort((a, b) => Number(b.oi7dChangePercent || 0) - Number(a.oi7dChangePercent || 0));
+}
+
 export function getHeatMax(rows) {
   return {
     priceChangePercent: maxAbs(rows, "priceChangePercent"),

@@ -1,36 +1,37 @@
-from pybit.unified_trading import HTTP
+import requests
 
 try:
-    from exchanges.utils import save_lines
+    from exchange_ticket.utils import save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchanges.utils import save_lines
+    from exchange_ticket.utils import save_lines
 
 
+SYMBOLS_URL = "https://api.bitget.com/api/v2/spot/public/symbols"
 OUTPUT_DIR = "ticket"
 
 
 def get_spot_pairs():
-    session = HTTP(testnet=False)
-
     try:
-        instruments = session.get_instruments_info(category="spot")["result"]["list"]
+        response = requests.get(SYMBOLS_URL, timeout=10)
+        response.raise_for_status()
+        data = response.json()
     except Exception as e:
-        print(f"Bybit spot pairs request failed: {e}")
+        print(f"Bitget spot pairs request failed: {e}")
         return
 
     usdt_pairs = [
-        f"Bybit:{symbol['symbol']}"
-        for symbol in instruments
-        if symbol.get("quoteCoin") == "USDT" and symbol.get("status") == "Trading"
+        f"Bitget:{symbol['symbol']}"
+        for symbol in data.get("data", [])
+        if symbol.get("quoteCoin") == "USDT" and symbol.get("status") == "online"
     ]
 
     save_lines(
         usdt_pairs,
-        "bybit_spot_pairs.txt",
+        "bitget_spot_pairs.txt",
         folder=OUTPUT_DIR,
         empty_message="No spot pairs found or an error occurred.",
         success_message="Spot pairs have been written to {path}",

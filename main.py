@@ -1,5 +1,5 @@
 def main():
-    from exchanges.bn import bnfutures, bnspots
+    from exchange_ticket.bn import bnfutures, bnspots
 
     #bitget.main()
     #bybitfutures.main()

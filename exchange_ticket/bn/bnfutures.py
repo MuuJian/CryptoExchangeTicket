@@ -6,13 +6,13 @@ except ImportError:
     from base_asset_map import BASE_ASSET_MAP
 
 try:
-    from exchanges.utils import save_chunked_lines
+    from exchange_ticket.utils import save_chunked_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchanges.utils import save_chunked_lines
+    from exchange_ticket.utils import save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo"

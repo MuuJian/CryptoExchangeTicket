@@ -1,13 +1,13 @@
 from pybit.unified_trading import HTTP
 
 try:
-    from exchanges.utils import save_lines
+    from exchange_ticket.utils import save_lines
 except ImportError:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchanges.utils import save_lines
+    from exchange_ticket.utils import save_lines
 
 
 OUTPUT_DIR = "ticket"

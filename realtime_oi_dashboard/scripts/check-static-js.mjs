@@ -1,8 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-const roots = ["realtime_oi_dashboard/static/js", "ath_atl/static/js"];
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const roots = [join(packageRoot, "static/js")];
 const files = roots.flatMap(collectJavaScriptFiles);
 
 for (const file of files) {
@@ -12,7 +14,7 @@ for (const file of files) {
 }
 
 checkIndexEntry();
-console.log(`Checked ${files.length} static JS files.`);
+console.log(`Checked ${files.length} realtime dashboard static JS files.`);
 
 function collectJavaScriptFiles(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
@@ -36,13 +38,8 @@ function checkRelativeImports(file) {
 }
 
 function checkIndexEntry() {
-  const dashboardHtml = readFileSync("realtime_oi_dashboard/index.html", "utf8");
-  if (!dashboardHtml.includes('<script type="module" src="/static/js/dashboard.js"></script>')) {
+  const html = readFileSync(join(packageRoot, "index.html"), "utf8");
+  if (!html.includes('<script type="module" src="/static/js/dashboard.js"></script>')) {
     throw new Error("realtime dashboard must load /static/js/dashboard.js as a module");
-  }
-
-  const athAtlHtml = readFileSync("ath_atl/templates/index.html", "utf8");
-  if (!athAtlHtml.includes('<script type="module" src="/static/js/app.js"></script>')) {
-    throw new Error("ATH/ATL page must load /static/js/app.js as a module");
   }
 }

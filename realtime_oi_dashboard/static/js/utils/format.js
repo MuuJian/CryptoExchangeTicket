@@ -32,6 +32,17 @@ export function heatStyle(value, max) {
   return `background: rgba(${color}, ${alpha});`;
 }
 
+const TRADINGVIEW_SYMBOL_MAP = {
+  "币安人生USDT": "BIANRENSHENGUSDT",
+  "龙虾USDT": "LONGXIAUSDT",
+  "我踏马来了USDT": "WOTAMALAILIAOUSDT",
+};
+
 export function tradingViewUrl(symbol) {
-  return `https://www.tradingview.com/chart/n6rCV2e0/?symbol=BINANCE%3A${encodeURIComponent(symbol)}.P`;
+  const tradingViewSymbol = TRADINGVIEW_SYMBOL_MAP[symbol] || symbol;
+  return `https://www.tradingview.com/chart/n6rCV2e0/?symbol=BINANCE%3A${encodeURIComponent(tradingViewSymbol)}.P`;
+}
+
+export function binanceFuturesUrl(symbol) {
+  return `https://www.binance.com/zh-CN/futures/${encodeURIComponent(symbol)}`;
 }

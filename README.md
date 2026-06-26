@@ -13,7 +13,7 @@ python3 main.py
 Run the Binance OI monitor directly:
 
 ```bash
-python3 -m exchanges.bn.binance_oi_monitor --interval-minutes 30 --alert-percent 5
+python3 -m exchange_ticket.bn.binance_oi_monitor --interval-minutes 30 --alert-percent 5
 ```
 
 Open the local ATH/ATL web page. It starts a background scanner automatically:
