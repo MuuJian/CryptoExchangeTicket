@@ -1,6 +1,7 @@
 import {
   binanceFuturesUrl,
   formatCurrency,
+  formatFundingRate,
   formatPercent,
   formatPrice,
   signClass,
@@ -55,12 +56,13 @@ export function createHighOi7dTable({ tbody }) {
     const priceLink = createLink();
     priceCell.append(priceLink);
 
+    const fundingRateCell = document.createElement("td");
     const changeCell = document.createElement("td");
     changeCell.className = "heat";
     const valueCell = document.createElement("td");
 
-    tr.append(symbolCell, priceCell, changeCell, valueCell);
-    tr._cells = { symbolLink, priceLink, changeCell, valueCell };
+    tr.append(symbolCell, priceCell, fundingRateCell, changeCell, valueCell);
+    tr._cells = { symbolLink, priceLink, fundingRateCell, changeCell, valueCell };
     return tr;
   }
 
@@ -70,6 +72,9 @@ export function createHighOi7dTable({ tbody }) {
     cells.symbolLink.textContent = row.symbol;
     cells.priceLink.href = tradingViewUrl(row.symbol);
     cells.priceLink.textContent = formatPrice(row.price);
+    cells.fundingRateCell.className = `heat ${signClass(row.fundingRatePercent)}`;
+    cells.fundingRateCell.title = formatFundingTitle(row.nextFundingTime);
+    cells.fundingRateCell.textContent = formatFundingRate(row.fundingRatePercent);
     cells.changeCell.className = `heat ${signClass(row.oi7dChangePercent)}`;
     cells.changeCell.textContent = formatPercent(row.oi7dChangePercent);
     cells.valueCell.textContent = formatCurrency(row.currentOiValue);
@@ -78,7 +83,7 @@ export function createHighOi7dTable({ tbody }) {
   function createEmptyRow() {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 4;
+    td.colSpan = 5;
     td.className = "empty";
     td.textContent = EMPTY_MESSAGE;
     tr.append(td);
@@ -91,6 +96,12 @@ export function createHighOi7dTable({ tbody }) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     return link;
+  }
+
+  function formatFundingTitle(nextFundingTime) {
+    const time = Number(nextFundingTime);
+    if (!Number.isFinite(time) || time <= 0) return "";
+    return `下次资金费结算: ${new Date(time).toLocaleString()}`;
   }
 
   return { render };

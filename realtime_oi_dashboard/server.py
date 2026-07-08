@@ -29,6 +29,7 @@ class OIPoller:
         refresh_symbols_interval=900,
         oi_24h_cache_seconds=300,
         ticker_cache_seconds=10,
+        funding_cache_seconds=3600,
     ):
         self.batch_size = batch_size
         self.batch_delay = batch_delay
@@ -36,9 +37,11 @@ class OIPoller:
         self.refresh_symbols_interval = refresh_symbols_interval
         self.oi_24h_cache_seconds = oi_24h_cache_seconds
         self.ticker_cache_seconds = ticker_cache_seconds
+        self.funding_cache_seconds = funding_cache_seconds
         self.base_url = "https://fapi.binance.com"
         self.info_url = f"{self.base_url}/fapi/v1/exchangeInfo"
         self.ticker_24h_url = f"{self.base_url}/fapi/v1/ticker/24hr"
+        self.funding_url = f"{self.base_url}/fapi/v1/premiumIndex"
         self.oi_url = f"{self.base_url}/fapi/v1/openInterest"
         self.oi_hist_url = f"{self.base_url}/futures/data/openInterestHist"
         self.snapshot_file = os.path.join(DATA_DIR, "latest_oi.json")
@@ -52,6 +55,8 @@ class OIPoller:
         self.oi_24h_cache = {}
         self.ticker_cache = None
         self.ticker_cache_at = 0
+        self.funding_cache = None
+        self.funding_cache_until = 0
         self.error_counts = {}
         self.snapshot = self.load_previous_snapshot()
         self.rows_by_symbol = {}
@@ -61,6 +66,8 @@ class OIPoller:
             "batch_delay": batch_delay,
             "oi_workers": oi_workers,
             "ticker_cache_seconds": ticker_cache_seconds,
+            "funding_cache_seconds": funding_cache_seconds,
+            "funding_next_refresh_at": None,
             "updated_symbols": 0,
             "total_symbols": 0,
             "error": None,
@@ -138,6 +145,8 @@ class OIPoller:
             "batch_delay": self.batch_delay,
             "oi_workers": self.oi_workers,
             "ticker_cache_seconds": self.ticker_cache_seconds,
+            "funding_cache_seconds": self.funding_cache_seconds,
+            "funding_next_refresh_at": self.funding_next_refresh_iso(),
             "snapshot": self.snapshot,
             "rows": self.sorted_rows(),
         }
@@ -159,6 +168,8 @@ class OIPoller:
                 "volume24h": item.get("volume24h"),
                 "price24hAgo": None,
                 "priceChangePercent": None,
+                "fundingRatePercent": item.get("fundingRatePercent"),
+                "nextFundingTime": item.get("nextFundingTime"),
                 "currentOi": oi,
                 "currentOiValue": oi * price,
                 "changeAmount": None,
@@ -217,6 +228,70 @@ class OIPoller:
             self.ticker_cache = tickers
             self.ticker_cache_at = now
         return tickers
+
+    def get_funding_rates(self):
+        now = time.time()
+        with self.cache_lock:
+            if (
+                self.funding_cache_seconds > 0
+                and self.funding_cache is not None
+                and now < self.funding_cache_until
+            ):
+                return self.funding_cache
+
+        try:
+            response = self.request_json(self.funding_url, timeout=12)
+            if isinstance(response, dict):
+                response = [response]
+
+            funding_rates = {}
+            next_funding_times = []
+            now_ms = int(now * 1000)
+
+            for item in response:
+                symbol = item.get("symbol")
+                if not symbol:
+                    continue
+
+                next_funding_time = parse_optional_int(item.get("nextFundingTime"))
+                if next_funding_time is not None and next_funding_time > now_ms:
+                    next_funding_times.append(next_funding_time)
+
+                funding_rates[symbol] = {
+                    "fundingRatePercent": parse_optional_float(item.get("lastFundingRate"), multiplier=100),
+                    "nextFundingTime": next_funding_time,
+                }
+        except Exception as exc:
+            with self.cache_lock:
+                cached = self.funding_cache
+            self.record_symbol_error("funding", exc)
+            return cached if cached is not None else {}
+
+        with self.cache_lock:
+            self.funding_cache = funding_rates
+            self.funding_cache_until = self.next_funding_refresh_at(now, next_funding_times)
+        return funding_rates
+
+    def next_funding_refresh_at(self, now, next_funding_times):
+        if self.funding_cache_seconds <= 0:
+            return now
+
+        future_times = [
+            timestamp_ms / 1000
+            for timestamp_ms in next_funding_times
+            if timestamp_ms and timestamp_ms / 1000 > now
+        ]
+        if future_times:
+            return min(future_times) + 5
+
+        return now + self.funding_cache_seconds
+
+    def funding_next_refresh_iso(self):
+        with self.cache_lock:
+            refresh_at = self.funding_cache_until
+        if not refresh_at:
+            return None
+        return datetime.fromtimestamp(refresh_at).isoformat(timespec="seconds")
 
     def get_open_interest(self, symbol):
         data = self.request_json(self.oi_url, params={"symbol": symbol}, timeout=8)
@@ -303,7 +378,8 @@ class OIPoller:
             return
 
         tickers = self.get_market_tickers()
-        results = self.update_symbols(batch, tickers)
+        funding_rates = self.get_funding_rates()
+        results = self.update_symbols(batch, tickers, funding_rates)
         updated_symbols = 0
 
         for result in results:
@@ -324,6 +400,8 @@ class OIPoller:
                 "batch_delay": self.batch_delay,
                 "oi_workers": self.oi_workers,
                 "ticker_cache_seconds": self.ticker_cache_seconds,
+                "funding_cache_seconds": self.funding_cache_seconds,
+                "funding_next_refresh_at": self.funding_next_refresh_iso(),
                 "updated_symbols": updated_symbols,
                 "total_symbols": len(self.symbols),
                 "error": None,
@@ -331,12 +409,12 @@ class OIPoller:
                 "rows": rows,
             }
 
-    def update_symbols(self, batch, tickers):
+    def update_symbols(self, batch, tickers, funding_rates):
         if self.oi_workers <= 1 or len(batch) <= 1:
             results = []
             for symbol in batch:
                 try:
-                    results.append(self.build_symbol_update(symbol, tickers))
+                    results.append(self.build_symbol_update(symbol, tickers, funding_rates))
                 except Exception as exc:
                     self.record_symbol_error(symbol, exc)
                     results.append(None)
@@ -345,7 +423,10 @@ class OIPoller:
         results = []
         max_workers = min(self.oi_workers, len(batch))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(self.build_symbol_update, symbol, tickers): symbol for symbol in batch}
+            futures = {
+                executor.submit(self.build_symbol_update, symbol, tickers, funding_rates): symbol
+                for symbol in batch
+            }
             for future in as_completed(futures):
                 symbol = futures[future]
                 try:
@@ -355,7 +436,7 @@ class OIPoller:
                     results.append(None)
         return results
 
-    def build_symbol_update(self, symbol, tickers):
+    def build_symbol_update(self, symbol, tickers, funding_rates):
         ticker = tickers.get(symbol)
         if not ticker:
             return None
@@ -366,6 +447,14 @@ class OIPoller:
 
         previous = self.snapshot.get(symbol)
         previous_oi = previous.get("oi", 0) if previous else 0
+        funding = funding_rates.get(symbol, {})
+        funding_rate_percent = funding.get("fundingRatePercent")
+        next_funding_time = funding.get("nextFundingTime")
+        if previous:
+            if funding_rate_percent is None:
+                funding_rate_percent = previous.get("fundingRatePercent")
+            if next_funding_time is None:
+                next_funding_time = previous.get("nextFundingTime")
 
         change_percent = None
         change_amount = None
@@ -382,6 +471,8 @@ class OIPoller:
             "oi": current_oi,
             "price": price,
             "volume24h": volume_24h,
+            "fundingRatePercent": funding_rate_percent,
+            "nextFundingTime": next_funding_time,
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }
         row = {
@@ -397,6 +488,8 @@ class OIPoller:
             "changeValue": change_value,
             "price24hAgo": None,
             "priceChangePercent": ticker.get("priceChangePercent"),
+            "fundingRatePercent": funding_rate_percent,
+            "nextFundingTime": next_funding_time,
             **oi_history,
         }
         return symbol, snapshot_item, row
@@ -429,11 +522,30 @@ def timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def parse_optional_float(value, multiplier=1):
+    if value is None:
+        return None
+    try:
+        return float(value) * multiplier
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_optional_int(value):
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     poller = None
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/":
             return self.send_file(INDEX_FILE, "text/html; charset=utf-8")
         if path.startswith("/static/"):
@@ -491,6 +603,7 @@ def parse_args():
     parser.add_argument("--oi-workers", type=int, default=3, help="parallel OI requests per batch")
     parser.add_argument("--oi-24h-cache-seconds", type=float, default=300, help="seconds to cache 24h/7d OI history; 0 means query every update")
     parser.add_argument("--ticker-cache-seconds", type=float, default=10, help="seconds to cache futures 24h ticker")
+    parser.add_argument("--funding-cache-seconds", type=float, default=3600, help="fallback seconds to cache funding rates when nextFundingTime is unavailable")
     return parser.parse_args()
 
 
@@ -506,6 +619,8 @@ def main():
         raise ValueError("--oi-24h-cache-seconds must be 0 or greater")
     if args.ticker_cache_seconds < 0:
         raise ValueError("--ticker-cache-seconds must be 0 or greater")
+    if args.funding_cache_seconds < 0:
+        raise ValueError("--funding-cache-seconds must be 0 or greater")
 
     poller = OIPoller(
         batch_size=args.oi_batch_size,
@@ -513,6 +628,7 @@ def main():
         oi_workers=args.oi_workers,
         oi_24h_cache_seconds=args.oi_24h_cache_seconds,
         ticker_cache_seconds=args.ticker_cache_seconds,
+        funding_cache_seconds=args.funding_cache_seconds,
     )
     DashboardHandler.poller = poller
 

@@ -3,7 +3,6 @@ const PRICE_DRIVEN_SORT_KEYS = new Set([
   "priceChangePercent",
   "currentOiValue",
   "volume24h",
-  "changeValue",
 ]);
 
 export function sortableNumber(value) {
@@ -101,6 +100,7 @@ export function buildHighOi7dRows(rows) {
 
 export function getHeatMax(rows) {
   return {
+    fundingRatePercent: maxAbs(rows, "fundingRatePercent"),
     priceChangePercent: maxAbs(rows, "priceChangePercent"),
     changePercent: maxAbs(rows, "changePercent"),
     oi24hChangePercent: maxAbs(rows, "oi24hChangePercent"),

@@ -20,6 +20,11 @@ export function formatPercent(value) {
   return (value >= 0 ? "+" : "") + Number(value).toFixed(2) + "%";
 }
 
+export function formatFundingRate(value) {
+  if (value == null || Number.isNaN(value)) return "-";
+  return (value >= 0 ? "+" : "") + Number(value).toFixed(4) + "%";
+}
+
 export function signClass(value) {
   return Number(value) >= 0 ? "pos" : "neg";
 }

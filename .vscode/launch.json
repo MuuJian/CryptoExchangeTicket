@@ -24,6 +24,26 @@
       }
     },
     {
+      "name": "Index Constituents",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/index_constituents/server.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--port",
+        "8788",
+        "--workers",
+        "12"
+      ],
+      "serverReadyAction": {
+        "pattern": "Index constituents dashboard running at (http://\\S+)",
+        "uriFormat": "%s",
+        "action": "openExternally"
+      }
+    },
+    {
       "name": "Generate Watchlists",
       "type": "python",
       "request": "launch",

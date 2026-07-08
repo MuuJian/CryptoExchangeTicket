@@ -5,6 +5,8 @@
  * @property {number | null} volume24h
  * @property {number | null} price24hAgo
  * @property {number | null} priceChangePercent
+ * @property {number | null} fundingRatePercent
+ * @property {number | null} nextFundingTime
  * @property {number | null} currentOi
  * @property {number | null} currentOiValue
  * @property {number | null} changeAmount
