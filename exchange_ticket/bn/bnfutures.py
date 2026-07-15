@@ -1,32 +1,49 @@
-import requests
+"""Generate TradingView watchlists for Binance USD-M futures."""
 
-try:
-    from .base_asset_map import BASE_ASSET_MAP
-except ImportError:
-    from base_asset_map import BASE_ASSET_MAP
-
-try:
-    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_chunked_lines
-except ImportError:
+if __package__ in {None, ""}:
     import sys
     from pathlib import Path
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_chunked_lines
+
+from exchange_ticket.bn.base_asset_map import BASE_ASSET_MAP
+from exchange_ticket.bn.tradfi import update_tradfi_watchlist
+from exchange_ticket.http import default_client
+from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://fapi.binance.com/fapi/v1/exchangeInfo"
 OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 
-def mapped_symbol(symbol):
+def mapped_symbol(symbol: str) -> str:
     return BASE_ASSET_MAP.get(symbol, symbol)
 
 
-def get_exchange_info():
-    response = requests.get(EXCHANGE_INFO_URL, timeout=10)
-    response.raise_for_status()
-    return response.json()
+def get_exchange_info() -> dict:
+    return default_client.get_json(EXCHANGE_INFO_URL, timeout=10)
+
+
+def build_futures_pairs(data: dict) -> tuple[list[str], list[str]]:
+    """Split active USDT perpetual contracts into TradFi and crypto lists."""
+    tradfi_pairs: list[str] = []
+    futures_pairs: list[str] = []
+
+    for symbol_info in data.get("symbols", []):
+        if symbol_info.get("status") != "TRADING" or symbol_info.get("quoteAsset") != "USDT":
+            continue
+
+        symbol = symbol_info.get("symbol")
+        if not symbol:
+            continue
+        symbol_name = f"Binance:{mapped_symbol(symbol)}.p"
+
+        if symbol_info.get("contractType") == "TRADIFI_PERPETUAL":
+            tradfi_pairs.append(symbol_name)
+        elif symbol_info.get("contractType") == "PERPETUAL":
+            futures_pairs.append(symbol_name)
+
+    return tradfi_pairs, futures_pairs
 
 
 def get_futures_pairs():
@@ -36,31 +53,15 @@ def get_futures_pairs():
         print(f"請求失敗: {e}")
         return
 
-    tradfi_pairs = []
-    futures_pairs = []
+    tradfi_pairs, futures_pairs = build_futures_pairs(data)
 
-    for symbol_info in data.get("symbols", []):
-        if symbol_info.get("status") != "TRADING" or symbol_info.get("quoteAsset") != "USDT":
-            continue
-
-        pair_symbol = mapped_symbol(symbol_info.get("symbol"))
-        symbol_name = f"Binance:{pair_symbol}.p"
-        contract_type = symbol_info.get("contractType")
-
-        if contract_type == "TRADIFI_PERPETUAL":
-            tradfi_pairs.append(symbol_name)
-        elif contract_type == "PERPETUAL":
-            futures_pairs.append(symbol_name)
-
-    save_chunked_lines(
+    tradfi_paths = update_tradfi_watchlist(
         tradfi_pairs,
-        "binance_tradfi_pairs.txt",
+        market="futures",
         folder=OUTPUT_DIR,
         chunk_size=500,
-        empty_message="沒有找到 binance_tradfi_pairs.txt 的相關交易對，或發生錯誤。",
-        success_message="成功將 {count} 個交易對拆成 {files} 個檔案: {path}",
     )
-    save_chunked_lines(
+    futures_paths = save_chunked_lines(
         futures_pairs,
         "binance_futures_pairs.txt",
         folder=OUTPUT_DIR,
@@ -68,6 +69,7 @@ def get_futures_pairs():
         empty_message="沒有找到 binance_futures_pairs.txt 的相關交易對，或發生錯誤。",
         success_message="成功將 {count} 個交易對拆成 {files} 個檔案: {path}",
     )
+    return [*tradfi_paths, *futures_paths]
 
 
 def main():

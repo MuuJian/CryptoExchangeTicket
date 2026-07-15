@@ -3,7 +3,11 @@ export function useFavorites(storageKey) {
   let version = 0;
 
   function save() {
-    localStorage.setItem(storageKey, JSON.stringify([...favorites]));
+    try {
+      localStorage.setItem(storageKey, JSON.stringify([...favorites]));
+    } catch {
+      // Favorites still work for the current page when storage is unavailable.
+    }
   }
 
   function toggle(symbol) {

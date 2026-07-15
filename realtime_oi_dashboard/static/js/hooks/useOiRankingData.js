@@ -75,9 +75,21 @@ export function useOiRankingData() {
 }
 
 export async function loadOiSnapshot() {
-  const res = await fetch("/api/oi");
-  if (!res.ok) throw new Error("Cannot load OI data");
-  return res.json();
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch("/api/oi", {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Cannot load OI data (${response.status})`);
+    return await response.json();
+  } catch (error) {
+    if (error.name === "AbortError") throw new Error("OI request timed out");
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function buildStats(rows) {

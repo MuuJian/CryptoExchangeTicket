@@ -1,21 +1,36 @@
+"""Realtime Binance Futures open-interest poller and local dashboard."""
+
+from __future__ import annotations
+
 import argparse
+import copy
 import json
-import mimetypes
-import os
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
 
-import requests
+try:
+    from exchange_ticket.http import JsonHttpClient
+    from exchange_ticket.utils import optional_float, optional_int
+    from exchange_ticket.web import DashboardRequestHandler
+except ModuleNotFoundError as exc:
+    if exc.name != "exchange_ticket":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from exchange_ticket.http import JsonHttpClient
+    from exchange_ticket.utils import optional_float, optional_int
+    from exchange_ticket.web import DashboardRequestHandler
 
 
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(ROOT_DIR, "data")
-INDEX_FILE = os.path.join(ROOT_DIR, "index.html")
-STATIC_DIR = os.path.join(ROOT_DIR, "static")
+ROOT_DIR = Path(__file__).resolve().parent
+DATA_DIR = ROOT_DIR / "data"
+INDEX_FILE = ROOT_DIR / "index.html"
+STATIC_DIR = ROOT_DIR / "static"
 HOST = "127.0.0.1"
 PORT = 8777
 
@@ -30,6 +45,9 @@ class OIPoller:
         oi_24h_cache_seconds=300,
         ticker_cache_seconds=10,
         funding_cache_seconds=3600,
+        snapshot_save_interval=10,
+        snapshot_file=None,
+        http_client=None,
     ):
         self.batch_size = batch_size
         self.batch_delay = batch_delay
@@ -38,17 +56,18 @@ class OIPoller:
         self.oi_24h_cache_seconds = oi_24h_cache_seconds
         self.ticker_cache_seconds = ticker_cache_seconds
         self.funding_cache_seconds = funding_cache_seconds
+        self.snapshot_save_interval = snapshot_save_interval
         self.base_url = "https://fapi.binance.com"
         self.info_url = f"{self.base_url}/fapi/v1/exchangeInfo"
         self.ticker_24h_url = f"{self.base_url}/fapi/v1/ticker/24hr"
         self.funding_url = f"{self.base_url}/fapi/v1/premiumIndex"
         self.oi_url = f"{self.base_url}/fapi/v1/openInterest"
         self.oi_hist_url = f"{self.base_url}/futures/data/openInterestHist"
-        self.snapshot_file = os.path.join(DATA_DIR, "latest_oi.json")
-        self.session = requests.Session()
-        self.thread_local = threading.local()
+        self.snapshot_file = Path(snapshot_file) if snapshot_file else DATA_DIR / "latest_oi.json"
+        self.http_client = http_client or JsonHttpClient()
         self.lock = threading.RLock()
         self.cache_lock = threading.Lock()
+        self.stop_event = threading.Event()
         self.symbols = []
         self.symbol_index = 0
         self.last_symbols_refresh = 0
@@ -58,7 +77,11 @@ class OIPoller:
         self.funding_cache = None
         self.funding_cache_until = 0
         self.error_counts = {}
-        self.snapshot = self.load_previous_snapshot()
+        self.last_snapshot_save = 0.0
+        previous_state = self.load_previous_state()
+        self.snapshot = previous_state.get("snapshot", {})
+        if not isinstance(self.snapshot, dict):
+            self.snapshot = {}
         self.rows_by_symbol = {}
         self.state = {
             "saved_at": None,
@@ -67,60 +90,34 @@ class OIPoller:
             "oi_workers": oi_workers,
             "ticker_cache_seconds": ticker_cache_seconds,
             "funding_cache_seconds": funding_cache_seconds,
+            "snapshot_save_interval": snapshot_save_interval,
             "funding_next_refresh_at": None,
             "updated_symbols": 0,
             "total_symbols": 0,
             "error": None,
             "recent_errors": [],
+            "baseline": bool(self.snapshot),
             "rows": [],
         }
-        self.restore_rows_from_snapshot()
 
-    def load_previous_snapshot(self):
-        if not os.path.exists(self.snapshot_file):
+    def load_previous_state(self):
+        if not self.snapshot_file.exists():
             return {}
 
         try:
-            with open(self.snapshot_file, "r", encoding="utf-8") as f:
-                payload = json.load(f)
-            snapshot = payload.get("snapshot", {})
-            return snapshot if isinstance(snapshot, dict) else {}
-        except Exception as exc:
+            payload = json.loads(self.snapshot_file.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except (OSError, ValueError) as exc:
             print(f"{timestamp()} failed to load previous OI snapshot: {exc}")
             return {}
 
     def request_json(self, url, params=None, timeout=10, attempts=3):
-        last_exc = None
-        for attempt in range(1, attempts + 1):
-            try:
-                resp = self.session_for_thread().get(url, params=params, timeout=timeout)
-                resp.raise_for_status()
-                return resp.json()
-            except (requests.RequestException, ValueError) as exc:
-                last_exc = exc
-                if attempt >= attempts:
-                    break
-                time.sleep(self.retry_delay(attempt, exc))
-        raise last_exc
-
-    def session_for_thread(self):
-        session = getattr(self.thread_local, "session", None)
-        if session is None:
-            session = requests.Session()
-            self.thread_local.session = session
-        return session
-
-    def retry_delay(self, attempt, exc):
-        response = getattr(exc, "response", None)
-        if response is not None and response.status_code in {418, 429}:
-            retry_after = response.headers.get("Retry-After")
-            if retry_after:
-                try:
-                    return max(float(retry_after), 2.0 * attempt)
-                except ValueError:
-                    pass
-            return 10.0 * attempt
-        return 1.0 * attempt
+        return self.http_client.get_json(
+            url,
+            params=params,
+            timeout=timeout,
+            attempts=attempts,
+        )
 
     def record_symbol_error(self, symbol, exc):
         key = str(exc)
@@ -137,62 +134,47 @@ class OIPoller:
         items.sort(key=lambda item: item["count"], reverse=True)
         return items[:limit]
 
-    def save_state(self):
-        os.makedirs(DATA_DIR, exist_ok=True)
+    def save_state(self, *, force=False):
+        now = time.monotonic()
+        if (
+            not force
+            and self.snapshot_save_interval > 0
+            and now - self.last_snapshot_save < self.snapshot_save_interval
+        ):
+            return False
+
+        self.snapshot_file.parent.mkdir(parents=True, exist_ok=True)
+        with self.lock:
+            snapshot = copy.deepcopy(self.snapshot)
         payload = {
-            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "saved_at": iso_now(),
             "batch_size": self.batch_size,
             "batch_delay": self.batch_delay,
             "oi_workers": self.oi_workers,
             "ticker_cache_seconds": self.ticker_cache_seconds,
             "funding_cache_seconds": self.funding_cache_seconds,
+            "snapshot_save_interval": self.snapshot_save_interval,
             "funding_next_refresh_at": self.funding_next_refresh_iso(),
-            "snapshot": self.snapshot,
-            "rows": self.sorted_rows(),
+            "snapshot": snapshot,
         }
-        temp_file = f"{self.snapshot_file}.tmp"
-        with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False)
-        os.replace(temp_file, self.snapshot_file)
-
-    def restore_rows_from_snapshot(self):
-        for symbol, item in self.snapshot.items():
-            oi = item.get("oi")
-            price = item.get("price")
-            if oi is None or price is None:
-                continue
-            self.rows_by_symbol[symbol] = {
-                "symbol": symbol,
-                "rank": 0,
-                "price": price,
-                "volume24h": item.get("volume24h"),
-                "price24hAgo": None,
-                "priceChangePercent": None,
-                "fundingRatePercent": item.get("fundingRatePercent"),
-                "nextFundingTime": item.get("nextFundingTime"),
-                "currentOi": oi,
-                "currentOiValue": oi * price,
-                "changeAmount": None,
-                "changePercent": None,
-                "absChangePercent": 0,
-                "changeValue": None,
-                "oi24hChangeAmount": None,
-                "oi24hChangePercent": None,
-                "oi24hChangeValue": None,
-                "oi7dChangeAmount": None,
-                "oi7dChangePercent": None,
-                "oi7dChangeValue": None,
-            }
+        temp_file = self.snapshot_file.with_suffix(f"{self.snapshot_file.suffix}.tmp")
+        temp_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temp_file.replace(self.snapshot_file)
+        self.last_snapshot_save = now
+        return True
 
     def get_active_symbols(self):
         data = self.request_json(self.info_url, timeout=12)
-        return [
-            item["symbol"]
-            for item in data.get("symbols", [])
-            if item.get("quoteAsset") == "USDT"
-            and item.get("status") == "TRADING"
-            and item.get("contractType") == "PERPETUAL"
-        ]
+        return sorted(
+            {
+                item["symbol"]
+                for item in data.get("symbols", [])
+                if item.get("symbol")
+                and item.get("quoteAsset") == "USDT"
+                and item.get("status") == "TRADING"
+                and item.get("contractType") == "PERPETUAL"
+            }
+        )
 
     def get_market_tickers(self):
         now = time.time()
@@ -253,12 +235,12 @@ class OIPoller:
                 if not symbol:
                     continue
 
-                next_funding_time = parse_optional_int(item.get("nextFundingTime"))
+                next_funding_time = optional_int(item.get("nextFundingTime"))
                 if next_funding_time is not None and next_funding_time > now_ms:
                     next_funding_times.append(next_funding_time)
 
                 funding_rates[symbol] = {
-                    "fundingRatePercent": parse_optional_float(item.get("lastFundingRate"), multiplier=100),
+                    "fundingRatePercent": optional_float(item.get("lastFundingRate"), multiplier=100),
                     "nextFundingTime": next_funding_time,
                 }
         except Exception as exc:
@@ -291,7 +273,7 @@ class OIPoller:
             refresh_at = self.funding_cache_until
         if not refresh_at:
             return None
-        return datetime.fromtimestamp(refresh_at).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(refresh_at).astimezone().isoformat(timespec="seconds")
 
     def get_open_interest(self, symbol):
         data = self.request_json(self.oi_url, params={"symbol": symbol}, timeout=8)
@@ -360,6 +342,16 @@ class OIPoller:
         self.last_symbols_refresh = time.time()
         if self.symbol_index >= len(self.symbols):
             self.symbol_index = 0
+        self.prune_inactive_symbols()
+
+    def prune_inactive_symbols(self):
+        active = set(self.symbols)
+        for mapping in (self.snapshot, self.rows_by_symbol):
+            for symbol in set(mapping) - active:
+                del mapping[symbol]
+        with self.cache_lock:
+            for symbol in set(self.oi_24h_cache) - active:
+                del self.oi_24h_cache[symbol]
 
     def next_batch(self):
         if not self.symbols:
@@ -382,32 +374,33 @@ class OIPoller:
         results = self.update_symbols(batch, tickers, funding_rates)
         updated_symbols = 0
 
-        for result in results:
-            if result is None:
-                continue
-            symbol, snapshot_item, row = result
-            self.snapshot[symbol] = snapshot_item
-            self.rows_by_symbol[symbol] = row
-            updated_symbols += 1
-
-        rows = self.sorted_rows()
-        self.save_state()
-
         with self.lock:
+            for result in results:
+                if result is None:
+                    continue
+                symbol, snapshot_item, row = result
+                self.snapshot[symbol] = snapshot_item
+                self.rows_by_symbol[symbol] = row
+                updated_symbols += 1
+
+            rows = self.sorted_rows()
             self.state = {
-                "saved_at": datetime.now().isoformat(timespec="seconds"),
+                "saved_at": iso_now(),
                 "batch_size": self.batch_size,
                 "batch_delay": self.batch_delay,
                 "oi_workers": self.oi_workers,
                 "ticker_cache_seconds": self.ticker_cache_seconds,
                 "funding_cache_seconds": self.funding_cache_seconds,
+                "snapshot_save_interval": self.snapshot_save_interval,
                 "funding_next_refresh_at": self.funding_next_refresh_iso(),
                 "updated_symbols": updated_symbols,
                 "total_symbols": len(self.symbols),
                 "error": None,
                 "recent_errors": self.recent_errors(),
+                "baseline": bool(self.snapshot),
                 "rows": rows,
             }
+        self.save_state()
 
     def update_symbols(self, batch, tickers, funding_rates):
         if self.oi_workers <= 1 or len(batch) <= 1:
@@ -473,7 +466,7 @@ class OIPoller:
             "volume24h": volume_24h,
             "fundingRatePercent": funding_rate_percent,
             "nextFundingTime": next_funding_time,
-            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": iso_now(),
         }
         row = {
             "symbol": symbol,
@@ -495,14 +488,14 @@ class OIPoller:
         return symbol, snapshot_item, row
 
     def sorted_rows(self):
-        rows = list(self.rows_by_symbol.values())
-        rows.sort(key=lambda item: item["absChangePercent"], reverse=True)
+        rows = [dict(item) for item in self.rows_by_symbol.values()]
+        rows.sort(key=lambda item: item.get("absChangePercent") or 0, reverse=True)
         for rank, item in enumerate(rows, 1):
             item["rank"] = rank
         return rows
 
     def run_forever(self):
-        while True:
+        while not self.stop_event.is_set():
             try:
                 self.update_batch()
             except Exception as exc:
@@ -511,117 +504,96 @@ class OIPoller:
                     self.state["error"] = str(exc)
                     self.state["recent_errors"] = self.recent_errors()
 
-            time.sleep(self.batch_delay)
+            self.stop_event.wait(self.batch_delay)
+
+    def stop(self):
+        self.stop_event.set()
 
     def get_state(self):
         with self.lock:
-            return json.loads(json.dumps(self.state))
+            return copy.deepcopy(self.state)
 
 
 def timestamp():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def parse_optional_float(value, multiplier=1):
-    if value is None:
-        return None
-    try:
-        return float(value) * multiplier
-    except (TypeError, ValueError):
-        return None
+def iso_now():
+    return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def parse_optional_int(value):
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-class DashboardHandler(BaseHTTPRequestHandler):
+class DashboardHandler(DashboardRequestHandler):
     poller = None
+    index_file = INDEX_FILE
+    static_dir = STATIC_DIR
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        path = parsed.path
-        if path == "/":
-            return self.send_file(INDEX_FILE, "text/html; charset=utf-8")
-        if path.startswith("/static/"):
-            return self.send_static(path)
-        if path == "/api/oi":
-            return self.send_json(self.poller.get_state())
+        if self.send_dashboard_asset(parsed.path):
+            return
+        if parsed.path == "/api/oi":
+            self.send_json(self.poller.get_state())
+            return
         self.send_error(404)
 
-    def send_static(self, request_path):
-        relative_path = request_path.removeprefix("/static/")
-        file_path = os.path.abspath(os.path.join(STATIC_DIR, relative_path))
-        static_root = os.path.abspath(STATIC_DIR)
 
-        if not file_path.startswith(static_root + os.sep):
-            self.send_error(404)
-            return
-
-        content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
-        if file_path.endswith(".js"):
-            content_type = "application/javascript; charset=utf-8"
-
-        self.send_file(file_path, content_type)
-
-    def send_file(self, path, content_type):
-        if not os.path.exists(path):
-            self.send_error(404)
-            return
-        with open(path, "rb") as f:
-            body = f.read()
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def send_json(self, payload):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, format, *args):
-        return
+def positive_int(value):
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
 
 
-def parse_args():
+def positive_float(value):
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be greater than 0")
+    return parsed
+
+
+def non_negative_float(value):
+    parsed = float(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be 0 or greater")
+    return parsed
+
+
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Realtime price + batched OI dashboard")
     parser.add_argument("--host", default=HOST)
-    parser.add_argument("--port", type=int, default=PORT)
-    parser.add_argument("--oi-batch-size", type=int, default=25, help="symbols to update per batch")
-    parser.add_argument("--oi-batch-delay", type=float, default=1.0, help="seconds between batches")
-    parser.add_argument("--oi-workers", type=int, default=3, help="parallel OI requests per batch")
-    parser.add_argument("--oi-24h-cache-seconds", type=float, default=300, help="seconds to cache 24h/7d OI history; 0 means query every update")
-    parser.add_argument("--ticker-cache-seconds", type=float, default=10, help="seconds to cache futures 24h ticker")
-    parser.add_argument("--funding-cache-seconds", type=float, default=3600, help="fallback seconds to cache funding rates when nextFundingTime is unavailable")
-    return parser.parse_args()
+    parser.add_argument("--port", type=positive_int, default=PORT)
+    parser.add_argument("--oi-batch-size", type=positive_int, default=25, help="symbols per batch")
+    parser.add_argument("--oi-batch-delay", type=positive_float, default=1.0, help="seconds between batches")
+    parser.add_argument("--oi-workers", type=positive_int, default=3, help="parallel OI requests")
+    parser.add_argument(
+        "--oi-24h-cache-seconds",
+        type=non_negative_float,
+        default=300,
+        help="seconds to cache 24h/7d OI history; 0 disables the cache",
+    )
+    parser.add_argument(
+        "--ticker-cache-seconds",
+        type=non_negative_float,
+        default=10,
+        help="seconds to cache futures 24h ticker",
+    )
+    parser.add_argument(
+        "--funding-cache-seconds",
+        type=non_negative_float,
+        default=3600,
+        help="fallback funding-rate cache duration",
+    )
+    parser.add_argument(
+        "--snapshot-save-interval",
+        type=non_negative_float,
+        default=10,
+        help="seconds between atomic snapshot writes; 0 writes every batch",
+    )
+    return parser.parse_args(argv)
 
 
-def main():
-    args = parse_args()
-    if args.oi_batch_size <= 0:
-        raise ValueError("--oi-batch-size must be greater than 0")
-    if args.oi_batch_delay <= 0:
-        raise ValueError("--oi-batch-delay must be greater than 0")
-    if args.oi_workers <= 0:
-        raise ValueError("--oi-workers must be greater than 0")
-    if args.oi_24h_cache_seconds < 0:
-        raise ValueError("--oi-24h-cache-seconds must be 0 or greater")
-    if args.ticker_cache_seconds < 0:
-        raise ValueError("--ticker-cache-seconds must be 0 or greater")
-    if args.funding_cache_seconds < 0:
-        raise ValueError("--funding-cache-seconds must be 0 or greater")
-
+def main(argv=None):
+    args = parse_args(argv)
     poller = OIPoller(
         batch_size=args.oi_batch_size,
         batch_delay=args.oi_batch_delay,
@@ -629,10 +601,11 @@ def main():
         oi_24h_cache_seconds=args.oi_24h_cache_seconds,
         ticker_cache_seconds=args.ticker_cache_seconds,
         funding_cache_seconds=args.funding_cache_seconds,
+        snapshot_save_interval=args.snapshot_save_interval,
     )
     DashboardHandler.poller = poller
 
-    thread = threading.Thread(target=poller.run_forever, daemon=True)
+    thread = threading.Thread(target=poller.run_forever, name="oi-poller", daemon=True)
     thread.start()
 
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
@@ -642,8 +615,15 @@ def main():
         f"OI updates {args.oi_batch_size} symbols every {args.oi_batch_delay} seconds "
         f"with {args.oi_workers} workers."
     )
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nDashboard stopped.")
+    finally:
+        poller.stop()
+        server.server_close()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

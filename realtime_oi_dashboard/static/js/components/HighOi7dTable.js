@@ -1,6 +1,7 @@
 import {
   binanceFuturesUrl,
   formatCurrency,
+  formatFundingTitle,
   formatFundingRate,
   formatPercent,
   formatPrice,
@@ -96,12 +97,6 @@ export function createHighOi7dTable({ tbody }) {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     return link;
-  }
-
-  function formatFundingTitle(nextFundingTime) {
-    const time = Number(nextFundingTime);
-    if (!Number.isFinite(time) || time <= 0) return "";
-    return `下次资金费结算: ${new Date(time).toLocaleString()}`;
   }
 
   return { render };

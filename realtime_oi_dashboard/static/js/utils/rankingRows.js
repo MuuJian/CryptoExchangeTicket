@@ -59,7 +59,7 @@ export function filterRankingRows(rows, filters, favorites) {
   const minVolume = Number(filters.minVolume || 0);
 
   return rows.filter(row => {
-    if (query && !row.symbol.includes(query)) return false;
+    if (query && !String(row.symbol || "").toUpperCase().includes(query)) return false;
     if (filters.favoritesOnly && !favorites.has(row.symbol)) return false;
     if (minOiValue && Number(row.currentOiValue || 0) < minOiValue) return false;
     if (minVolume && Number(row.volume24h || 0) < minVolume) return false;
@@ -86,8 +86,9 @@ export function sortRankingRows(rows, sortState) {
 }
 
 export function buildVisibleRows(rows, filters, sortState, favorites) {
+  const limit = sortableNumber(filters.limit);
   return sortRankingRows(filterRankingRows(rows, filters, favorites), sortState)
-    .slice(0, Number(filters.limit || 99999));
+    .slice(0, limit != null && limit >= 0 ? limit : 99999);
 }
 
 export function buildHighOi7dRows(rows) {

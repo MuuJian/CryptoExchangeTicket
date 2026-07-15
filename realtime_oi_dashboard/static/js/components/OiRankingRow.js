@@ -1,6 +1,7 @@
 import {
   binanceFuturesUrl,
   formatCurrency,
+  formatFundingTitle,
   formatFundingRate,
   formatPercent,
   formatPrice,
@@ -118,10 +119,4 @@ function updateHeatCell(cell, value, max, formatter = formatPercent) {
   cell.className = `heat ${signClass(value)}`;
   cell.style.cssText = heatStyle(value, max);
   cell.textContent = formatter(value);
-}
-
-function formatFundingTitle(nextFundingTime) {
-  const time = Number(nextFundingTime);
-  if (!Number.isFinite(time) || time <= 0) return "";
-  return `下次资金费结算: ${new Date(time).toLocaleString()}`;
 }

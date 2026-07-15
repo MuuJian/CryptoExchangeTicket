@@ -5,16 +5,19 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
   let reconnectTimer = 0;
   let flushFrame = 0;
   let stopped = false;
+  let reconnectAttempts = 0;
 
   function connect() {
     stopped = false;
-    clearTimeout(reconnectTimer);
+    window.clearTimeout(reconnectTimer);
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
 
     const url = "wss://fstream.binance.com/stream?streams=!ticker@arr";
     socket = new WebSocket(url);
     onStatusChange("Connecting");
 
     socket.onopen = () => {
+      reconnectAttempts = 0;
       onStatusChange("Live");
     };
 
@@ -52,7 +55,9 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
     socket.onclose = () => {
       if (stopped) return;
       onStatusChange("Reconnecting");
-      reconnectTimer = window.setTimeout(connect, 2000);
+      reconnectAttempts += 1;
+      const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 30000);
+      reconnectTimer = window.setTimeout(connect, delay);
     };
 
     socket.onerror = () => {
@@ -75,7 +80,7 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
 
   function close() {
     stopped = true;
-    clearTimeout(reconnectTimer);
+    window.clearTimeout(reconnectTimer);
     if (flushFrame) window.cancelAnimationFrame(flushFrame);
     if (socket) socket.close();
   }

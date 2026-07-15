@@ -114,7 +114,11 @@ filterBar.render();
 sortableHeaders.render();
 priceSocket.connect();
 refreshOi({ showError: true });
-window.setInterval(() => refreshOi({ showError: false }), 10000);
+const refreshTimer = window.setInterval(() => refreshOi({ showError: false }), 10000);
+window.addEventListener("beforeunload", () => {
+  window.clearInterval(refreshTimer);
+  priceSocket.close();
+});
 
 async function refreshOi({ showError }) {
   try {
@@ -131,7 +135,9 @@ async function refreshOi({ showError }) {
 }
 
 function renderOiStatus(payload) {
-  elements.statusTitle.textContent = payload.baseline ? "Baseline ready" : "Live OI changes";
+  elements.statusTitle.textContent = payload.error
+    ? "OI update error"
+    : payload.rows?.length ? "Live OI changes" : "Waiting for fresh OI";
   const errorText = payload.recent_errors?.length ? ` · errors ${payload.recent_errors.length}` : "";
   elements.statusText.textContent =
     `${payload.saved_at || "no OI yet"} · batch ${payload.updated_symbols || 0}/${payload.total_symbols || 0}${errorText}`;

@@ -13,8 +13,11 @@ for (const file of files) {
   checkRelativeImports(file);
 }
 
-checkIndexEntry();
-console.log(`Checked ${files.length} realtime dashboard static JS files.`);
+checkIndexEntry(
+  join(packageRoot, "index.html"),
+  '<script type="module" src="/static/js/dashboard.js"></script>',
+);
+console.log(`Checked ${files.length} dashboard JavaScript files.`);
 
 function collectJavaScriptFiles(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
@@ -37,9 +40,9 @@ function checkRelativeImports(file) {
   }
 }
 
-function checkIndexEntry() {
-  const html = readFileSync(join(packageRoot, "index.html"), "utf8");
-  if (!html.includes('<script type="module" src="/static/js/dashboard.js"></script>')) {
-    throw new Error("realtime dashboard must load /static/js/dashboard.js as a module");
+function checkIndexEntry(htmlPath, expectedEntry) {
+  const html = readFileSync(htmlPath, "utf8");
+  if (!html.includes(expectedEntry)) {
+    throw new Error(`${htmlPath} must load ${expectedEntry}`);
   }
 }

@@ -1,6 +1,6 @@
 import { createRankingRow, updateRankingRow } from "./OiRankingRow.js";
 
-const EMPTY_MESSAGE = "正在建立 OI 基准。分批更新一圈后，持仓变化会逐步出现。";
+const EMPTY_MESSAGE = "正在获取本次启动后的 OI 数据，结果会按批次逐步出现。";
 
 export function createOiRankingTable({ tbody, getRowBySymbol }) {
   const rowsBySymbol = new Map();

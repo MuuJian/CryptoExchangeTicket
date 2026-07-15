@@ -1,41 +1,27 @@
 # Realtime OI Dashboard
 
-本地网页项目，价格用 Binance Futures WebSocket 实时更新，OI 持仓按批次连续轮询。
+本地 Binance Futures 面板。价格由浏览器 WebSocket 实时更新；服务端分批轮询当前 OI、历史 OI、24 小时行情与资金费率。
 
 ## 启动
 
 在仓库根目录运行：
 
 ```bash
-./bin/python3 realtime_oi_dashboard/server.py
+python3 -m realtime_oi_dashboard.server
 ```
 
-然后打开：
+打开 <http://127.0.0.1:8777>。
 
-```text
-http://127.0.0.1:8777
-```
+默认每秒更新 25 个交易对，并使用 3 个 OI worker。资金费率正常情况下会在 Binance 返回的下一次结算时间后刷新；`--funding-cache-seconds` 只在结算时间缺失时作为兜底。
 
-## 调整 OI 分批刷新
-
-默认每 1 秒更新 25 个币，OI 请求会用 3 个 worker 小并发。实时价格由浏览器 WebSocket 更新，不受 `--ticker-cache-seconds` 影响；这个缓存只用于后端 REST `/fapi/v1/ticker/24hr` 的 24h 汇总数据，例如 24h 成交额和 24h 价格变化。资金费率按 Binance 返回的 `nextFundingTime` 刷新：
+限频时可以降速：
 
 ```bash
-./bin/python3 realtime_oi_dashboard/server.py
+python3 -m realtime_oi_dashboard.server \
+  --oi-batch-size 10 \
+  --oi-batch-delay 2 \
+  --oi-workers 1 \
+  --ticker-cache-seconds 30
 ```
 
-可以显式指定默认速度，同时保持 ticker 和资金费率缓存，减少触发限频：
-
-```bash
-./bin/python3 realtime_oi_dashboard/server.py --oi-batch-size 25 --oi-batch-delay 1 --oi-workers 3 --ticker-cache-seconds 10 --funding-cache-seconds 3600
-```
-
-`--funding-cache-seconds` 现在只作为 `nextFundingTime` 缺失时的兜底缓存时间；正常情况下会在下一次资金费结算时间后刷新。
-
-如果遇到 `429` / `418`，先降速：
-
-```bash
-./bin/python3 realtime_oi_dashboard/server.py --oi-batch-size 10 --oi-batch-delay 2 --oi-workers 1 --ticker-cache-seconds 30 --funding-cache-seconds 3600
-```
-
-不建议高频更新全市场所有币，因为 Binance openInterest 和历史 OI 是按 symbol 请求，太高频容易触发限频。
+页面只显示本次启动后刚获取的数据，并按批次逐步填充。服务会读取上次快照作为 OI 变化的比较基准，但不会直接把旧行显示出来。基准快照默认每 10 秒原子写入 `data/latest_oi.json`，可用 `--snapshot-save-interval` 调整间隔。

@@ -5,7 +5,7 @@
       "name": "Realtime OI Dashboard",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/realtime_oi_dashboard/server.py",
+      "module": "realtime_oi_dashboard.server",
       "cwd": "${workspaceFolder}",
       "console": "integratedTerminal",
       "justMyCode": true,
@@ -15,30 +15,10 @@
         "--oi-batch-delay",
         "1",
         "--oi-workers",
-        "3",
+        "3"
       ],
       "serverReadyAction": {
         "pattern": "Dashboard running at (http://\\S+)",
-        "uriFormat": "%s",
-        "action": "openExternally"
-      }
-    },
-    {
-      "name": "Index Constituents",
-      "type": "python",
-      "request": "launch",
-      "program": "${workspaceFolder}/index_constituents/server.py",
-      "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "args": [
-        "--port",
-        "8788",
-        "--workers",
-        "12"
-      ],
-      "serverReadyAction": {
-        "pattern": "Index constituents dashboard running at (http://\\S+)",
         "uriFormat": "%s",
         "action": "openExternally"
       }

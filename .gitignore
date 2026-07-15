@@ -1,4 +1,5 @@
 # Python virtual environments
+.venv/
 venv/
 bin/
 include/
@@ -9,8 +10,6 @@ pyvenv.*
 ticket/
 exchange_ticket/ticket/
 realtime_oi_dashboard/data/
-ath_atl/data/
-ath_atl/logs/
 .env
 .DS_Store
 

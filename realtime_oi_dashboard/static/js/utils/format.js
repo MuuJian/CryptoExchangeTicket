@@ -1,40 +1,58 @@
 export function formatNumber(value) {
-  if (value == null || Number.isNaN(value)) return "-";
-  return Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const number = finiteNumber(value);
+  if (number == null) return "-";
+  return number.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 export function formatCurrency(value) {
-  if (value == null || Number.isNaN(value)) return "-";
-  if (Math.abs(value) >= 100000000) return "$" + (value / 100000000).toFixed(2) + "亿";
-  if (Math.abs(value) >= 10000) return "$" + (value / 10000).toFixed(2) + "万";
-  return "$" + Number(value).toFixed(0);
+  const number = finiteNumber(value);
+  if (number == null) return "-";
+  if (Math.abs(number) >= 100000000) return "$" + (number / 100000000).toFixed(2) + "亿";
+  if (Math.abs(number) >= 10000) return "$" + (number / 10000).toFixed(2) + "万";
+  return "$" + number.toFixed(0);
 }
 
 export function formatPrice(value) {
-  if (value == null || Number.isNaN(value)) return "-";
-  return "$" + Number(value).toPrecision(6).replace(/\.?0+$/, "");
+  const number = finiteNumber(value);
+  if (number == null) return "-";
+  return "$" + number.toLocaleString(undefined, {
+    maximumSignificantDigits: 6,
+    useGrouping: Math.abs(number) >= 1000,
+  });
 }
 
 export function formatPercent(value) {
-  if (value == null || Number.isNaN(value)) return "-";
-  return (value >= 0 ? "+" : "") + Number(value).toFixed(2) + "%";
+  const number = finiteNumber(value);
+  if (number == null) return "-";
+  return (number >= 0 ? "+" : "") + number.toFixed(2) + "%";
 }
 
 export function formatFundingRate(value) {
-  if (value == null || Number.isNaN(value)) return "-";
-  return (value >= 0 ? "+" : "") + Number(value).toFixed(4) + "%";
+  const number = finiteNumber(value);
+  if (number == null) return "-";
+  return (number >= 0 ? "+" : "") + number.toFixed(4) + "%";
 }
 
 export function signClass(value) {
-  return Number(value) >= 0 ? "pos" : "neg";
+  const number = finiteNumber(value);
+  if (number == null) return "neutral";
+  return number >= 0 ? "pos" : "neg";
 }
 
 export function heatStyle(value, max) {
-  if (value == null || Number.isNaN(value) || !max) return "";
-  const ratio = Math.min(Math.abs(value) / max, 1);
+  const number = finiteNumber(value);
+  const maximum = finiteNumber(max);
+  if (number == null || maximum == null || maximum <= 0) return "";
+  const ratio = Math.min(Math.abs(number) / maximum, 1);
   const alpha = 0.08 + ratio * 0.22;
-  const color = Number(value) >= 0 ? "var(--green)" : "var(--red)";
+  const color = number >= 0 ? "var(--green)" : "var(--red)";
   return `background: rgba(${color}, ${alpha});`;
+}
+
+export function formatFundingTitle(nextFundingTime) {
+  const time = finiteNumber(nextFundingTime);
+  if (time == null || time <= 0) return "";
+  return `下次资金费结算: ${new Date(time).toLocaleString()}`;
 }
 
 const TRADINGVIEW_SYMBOL_MAP = {
@@ -50,4 +68,10 @@ export function tradingViewUrl(symbol) {
 
 export function binanceFuturesUrl(symbol) {
   return `https://www.binance.com/zh-CN/futures/${encodeURIComponent(symbol)}`;
+}
+
+function finiteNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
