@@ -1,5 +1,5 @@
 export function useFavorites(storageKey) {
-  let favorites = readFavorites(storageKey);
+  const favorites = readFavorites(storageKey);
   let version = 0;
 
   function save() {
@@ -11,19 +11,20 @@ export function useFavorites(storageKey) {
   }
 
   function toggle(symbol) {
-    if (favorites.has(symbol)) {
-      favorites.delete(symbol);
+    const normalizedSymbol = normalizeSymbol(symbol);
+    if (!normalizedSymbol) return false;
+
+    if (favorites.has(normalizedSymbol)) {
+      favorites.delete(normalizedSymbol);
     } else {
-      favorites.add(symbol);
+      favorites.add(normalizedSymbol);
     }
     version += 1;
     save();
+    return true;
   }
 
   return {
-    has(symbol) {
-      return favorites.has(symbol);
-    },
     toggle,
     getSet() {
       return favorites;
@@ -40,8 +41,16 @@ export function useFavorites(storageKey) {
 function readFavorites(storageKey) {
   try {
     const raw = JSON.parse(localStorage.getItem(storageKey) || "[]");
-    return new Set(Array.isArray(raw) ? raw : []);
+    return new Set(
+      Array.isArray(raw)
+        ? raw.map(normalizeSymbol).filter(Boolean)
+        : [],
+    );
   } catch {
     return new Set();
   }
+}
+
+function normalizeSymbol(symbol) {
+  return typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
 }

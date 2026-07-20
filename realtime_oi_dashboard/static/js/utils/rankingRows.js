@@ -5,37 +5,38 @@ const PRICE_DRIVEN_SORT_KEYS = new Set([
   "volume24h",
 ]);
 
-export function sortableNumber(value) {
+function sortableNumber(value) {
+  if (value == null || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
 
 export function applyLivePriceToRow(row, live) {
-  if (!row || !live || !Number.isFinite(live.price)) return false;
+  if (!row || !live || !Number.isFinite(live.price) || live.price <= 0) return false;
 
   let changed = false;
   const price = live.price;
-  const volume24h = Number.isFinite(live.volume24h) ? live.volume24h : undefined;
+  const volume24h = Number.isFinite(live.volume24h) && live.volume24h >= 0
+    ? live.volume24h
+    : undefined;
 
   if (row.price !== price) {
     row.price = price;
     changed = true;
   }
 
-  const price24hAgo = Number(row.price24hAgo);
-  const priceChangePercent = price24hAgo > 0
-    ? (price - price24hAgo) / price24hAgo * 100
-    : row.priceChangePercent;
-
-  if (row.priceChangePercent !== priceChangePercent) {
-    row.priceChangePercent = priceChangePercent;
+  if (
+    Number.isFinite(live.priceChangePercent)
+    && row.priceChangePercent !== live.priceChangePercent
+  ) {
+    row.priceChangePercent = live.priceChangePercent;
     changed = true;
   }
 
   const currentOi = Number(row.currentOi);
-  if (Number.isFinite(currentOi)) {
+  if (Number.isFinite(currentOi) && currentOi >= 0) {
     const currentOiValue = currentOi * price;
-    if (row.currentOiValue !== currentOiValue) {
+    if (Number.isFinite(currentOiValue) && row.currentOiValue !== currentOiValue) {
       row.currentOiValue = currentOiValue;
       changed = true;
     }
@@ -46,14 +47,10 @@ export function applyLivePriceToRow(row, live) {
     changed = true;
   }
 
-  changed = patchChangeValue(row, "changeAmount", "changeValue", price) || changed;
-  changed = patchChangeValue(row, "oi24hChangeAmount", "oi24hChangeValue", price) || changed;
-  changed = patchChangeValue(row, "oi7dChangeAmount", "oi7dChangeValue", price) || changed;
-
   return changed;
 }
 
-export function filterRankingRows(rows, filters, favorites) {
+function filterRankingRows(rows, filters, favorites) {
   const query = filters.query.trim().toUpperCase();
   const minOiValue = Number(filters.minOiValue || 0);
   const minVolume = Number(filters.minVolume || 0);
@@ -67,7 +64,7 @@ export function filterRankingRows(rows, filters, favorites) {
   });
 }
 
-export function sortRankingRows(rows, sortState) {
+function sortRankingRows(rows, sortState) {
   const dir = sortState.sortDir === "asc" ? 1 : -1;
   const sorted = rows.slice();
 
@@ -113,14 +110,6 @@ export function isPriceDrivenView(filters, sortState) {
   return PRICE_DRIVEN_SORT_KEYS.has(sortState.sortKey)
     || Number(filters.minOiValue || 0) > 0
     || Number(filters.minVolume || 0) > 0;
-}
-
-function patchChangeValue(row, amountKey, valueKey, price) {
-  if (row[amountKey] == null) return false;
-  const nextValue = row[amountKey] * price;
-  if (row[valueKey] === nextValue) return false;
-  row[valueKey] = nextValue;
-  return true;
 }
 
 function maxAbs(rows, key) {

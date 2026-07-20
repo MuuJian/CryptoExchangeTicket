@@ -67,8 +67,5 @@ export function createOiRankingTable({ tbody, getRowBySymbol }) {
   return {
     render,
     patchRows,
-    hasVisibleSymbol(symbol) {
-      return visibleSymbols.has(symbol);
-    },
   };
 }

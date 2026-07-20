@@ -1,6 +1,6 @@
 # CryptoExchangeTicket
 
-生成 TradingView 观察列表，并提供 Binance Futures 实时持仓变化面板。
+生成 Binance TradingView 观察列表，并提供 Futures 实时持仓变化面板。
 
 ## 安装
 
@@ -19,14 +19,15 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-也可以指定交易所和市场：
+结果写入 `exchange_ticket/ticket/`，单个文件最多 500 行；重复项会自动去除，旧的多余分片会自动清理：
 
-```bash
-.venv/bin/python main.py --exchange bybit --market futures
-.venv/bin/python main.py --exchange all --market spot
-```
+- `binance_usdt_pairs.txt`：加密货币现货
+- `binance_futures_pairs.txt`：加密货币永续合约
+- `binance_tradfi_spot_pairs.txt`：TradFi 现货
+- `binance_tradfi_futures_pairs.txt`：TradFi 永续合约
 
-支持 `binance`、`bybit`、`bitget` 和 `okx`。结果写入 `exchange_ticket/ticket/`，单个文件最多 500 行；重复项会自动去除，旧的多余分片会自动清理。Binance 的 TradFi 现货与合约会合并写入 `binance_tradfi_pairs.txt`。
+TradFi 现货会根据当前 TradFi 期货的基础资产加 `B` 后，与实际在交易的现货自动匹配，无需维护手工名单。
+请求失败、返回空名单或缺少任一市场分类时，程序会退出，对应的旧文件不会被空结果覆盖。
 
 ## 实时 OI 面板
 
@@ -46,29 +47,22 @@ python3 -m venv .venv
   --ticker-cache-seconds 30
 ```
 
-更多参数可用 `python -m realtime_oi_dashboard.server --help` 查看。
+更多参数可用 `.venv/bin/python -m realtime_oi_dashboard.server --help` 查看。
 
-## 验证
+## 前端语法检查
 
-`tests/` 是开发时使用的自动检查，不参与程序运行。建议保留它，以便修改观察列表或 OI 逻辑后快速确认功能没有被改坏。
-
-Python 测试不需要访问网络：
-
-```bash
-.venv/bin/python -m unittest discover -v
-```
-
-前端检查需要 Node.js：
+需要 Node.js；同时检查 JavaScript 语法、相对导入、入口可达性以及页面 ID：
 
 ```bash
 node realtime_oi_dashboard/scripts/check-static-js.mjs
-node realtime_oi_dashboard/scripts/test-static-js.mjs
 ```
 
 ## 目录
 
 ```text
-exchange_ticket/          交易所观察列表与共享 HTTP/Web 工具
+exchange_ticket/          Binance 观察列表生成器
 realtime_oi_dashboard/    实时价格和 OI 面板
-tests/                    离线单元测试
+shared/http.py            OI 面板共用的 JSON 请求、重试和线程会话
+shared/utils.py           名单写入、数值解析和快照原子写入
+shared/web.py             OI 面板的静态文件和 JSON 响应处理
 ```

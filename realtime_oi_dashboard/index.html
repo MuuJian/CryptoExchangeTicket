@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Realtime OI Dashboard</title>
+  <title>实时 OI 面板</title>
   <style>
     :root {
       --bg: #f4f6f7;
@@ -193,12 +193,11 @@
       background: var(--head);
       color: #39434d;
       font-size: 13px;
-      cursor: pointer;
-      user-select: none;
     }
 
     th[data-sort] {
-      position: sticky;
+      cursor: pointer;
+      user-select: none;
     }
 
     .sort-label {
@@ -331,7 +330,7 @@
         <div class="sub">价格用 Binance Futures WebSocket 实时更新；OI 持仓按批次连续轮询。</div>
       </div>
       <div class="status">
-        <strong id="statusTitle">Starting</strong>
+        <strong id="statusTitle">启动中</strong>
         <span id="statusText">等待 OI 快照和价格 WebSocket</span>
       </div>
     </header>
@@ -339,8 +338,8 @@
     <section class="metrics">
       <div class="metric"><div class="label">变化币种</div><div class="value" id="changeCount">-</div><div class="note">本轮 OI 可对比数量</div></div>
       <div class="metric"><div class="label">价格连接</div><div class="value" id="wsState">-</div><div class="note">Binance WebSocket</div></div>
-      <div class="metric"><div class="label">最大增仓</div><div class="value" id="topIncrease">-</div><div class="note" id="topIncreaseNote">OI change</div></div>
-      <div class="metric"><div class="label">最大减仓</div><div class="value" id="topDecrease">-</div><div class="note" id="topDecreaseNote">OI change</div></div>
+      <div class="metric"><div class="label">24h 最大增仓</div><div class="value" id="topIncrease">-</div><div class="note" id="topIncreaseNote">24h OI 变化</div></div>
+      <div class="metric"><div class="label">24h 最大减仓</div><div class="value" id="topDecrease">-</div><div class="note" id="topDecreaseNote">24h OI 变化</div></div>
     </section>
 
     <section class="panel signal-panel">
@@ -372,11 +371,11 @@
     <section class="panel">
       <div class="toolbar">
         <div>
-          <strong>OI Change Ranking</strong>
-          <div class="sub">默认按持仓变化从高到低排序；价格实时跳动，OI 每秒更新一批币种，24h OI 按后端刷新。</div>
+          <strong>OI 变化排行</strong>
+          <div class="sub">默认按持仓变化从高到低排序；价格实时跳动，OI 与 24h/7d 变化按批次更新。</div>
         </div>
         <div class="controls">
-          <input id="searchInput" placeholder="Search symbol">
+          <input id="searchInput" placeholder="搜索币种">
           <button id="favoritesOnlyBtn" class="ghost-btn" type="button">只看收藏</button>
           <select id="oiValueFilter">
             <option value="0">持仓价值: 全部</option>
@@ -395,9 +394,9 @@
             <option value="100000000">成交额 ≥ $1亿</option>
           </select>
           <select id="limitSelect">
-            <option value="50">Top 50</option>
-            <option value="100">Top 100</option>
-            <option value="99999" selected>All</option>
+            <option value="50">前 50</option>
+            <option value="100">前 100</option>
+            <option value="99999" selected>全部</option>
           </select>
         </div>
       </div>

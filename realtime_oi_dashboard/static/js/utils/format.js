@@ -1,9 +1,3 @@
-export function formatNumber(value) {
-  const number = finiteNumber(value);
-  if (number == null) return "-";
-  return number.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
 export function formatCurrency(value) {
   const number = finiteNumber(value);
   if (number == null) return "-";
@@ -51,8 +45,10 @@ export function heatStyle(value, max) {
 
 export function formatFundingTitle(nextFundingTime) {
   const time = finiteNumber(nextFundingTime);
-  if (time == null || time <= 0) return "";
-  return `下次资金费结算: ${new Date(time).toLocaleString()}`;
+  if (time == null || time <= Date.now()) return "";
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) return "";
+  return `下次资金费结算: ${date.toLocaleString()}`;
 }
 
 const TRADINGVIEW_SYMBOL_MAP = {

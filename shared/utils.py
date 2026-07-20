@@ -1,11 +1,15 @@
+"""File-output and value-conversion helpers shared across the project."""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
+from math import isfinite
 from pathlib import Path
+from uuid import uuid4
 
 
-PACKAGE_ROOT = Path(__file__).resolve().parent
-DEFAULT_OUTPUT_DIR = PACKAGE_ROOT / "ticket"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "exchange_ticket" / "ticket"
 
 
 def unique_lines(lines: Iterable[str]) -> list[str]:
@@ -14,48 +18,43 @@ def unique_lines(lines: Iterable[str]) -> list[str]:
 
 
 def optional_float(value: object, *, multiplier: float = 1) -> float | None:
-    if value is None:
+    if value is None or isinstance(value, bool):
         return None
     try:
-        return float(value) * multiplier
-    except (TypeError, ValueError):
+        number = float(value) * multiplier
+    except (TypeError, ValueError, OverflowError):
         return None
+    return number if isfinite(number) else None
 
 
 def optional_int(value: object) -> int | None:
-    if value is None:
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, str):
+        candidate = value.strip()
+        digits = candidate[1:] if candidate[:1] in {"+", "-"} else candidate
+        if not digits or not digits.isdecimal():
+            return None
+        return int(candidate)
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
         return None
     try:
-        return int(value)
-    except (TypeError, ValueError):
+        return parsed if value == parsed else None
+    except Exception:
         return None
 
 
-def save_lines(
-    lines: Iterable[str],
-    filename: str,
-    folder: str | Path = DEFAULT_OUTPUT_DIR,
-    empty_message: str | None = None,
-    success_message: str | None = None,
-) -> Path | None:
-    """Write one line per item and create the output folder when needed."""
-    items = unique_lines(lines)
-    if not items:
-        output_path = Path(folder) / filename
-        if output_path.exists():
-            output_path.unlink()
-        if empty_message:
-            print(empty_message)
-        return None
-
-    output_path = Path(folder) / filename
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text("\n".join(items) + "\n", encoding="utf-8")
-
-    if success_message:
-        print(success_message.format(count=len(items), path=output_path))
-
-    return output_path
+def write_text_atomic(path: Path, text: str) -> None:
+    """Write UTF-8 text without exposing a partially written destination."""
+    temp_path = _stage_text(path, text)
+    try:
+        temp_path.replace(path)
+    finally:
+        _remove_temp_file(temp_path)
 
 
 def save_chunked_lines(
@@ -82,15 +81,25 @@ def save_chunked_lines(
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = base_path.stem
     suffix = base_path.suffix
-    paths = []
+    outputs = []
 
     for index in range(0, len(items), chunk_size):
         chunk = items[index : index + chunk_size]
         part_number = index // chunk_size + 1
         output_path = base_path if part_number == 1 else output_dir / f"{stem}_{part_number}{suffix}"
-        output_path.write_text("\n".join(chunk) + "\n", encoding="utf-8")
-        paths.append(output_path)
+        outputs.append((output_path, "\n".join(chunk) + "\n"))
 
+    staged = []
+    try:
+        for output_path, text in outputs:
+            staged.append((_stage_text(output_path, text), output_path))
+        for temp_path, output_path in staged:
+            temp_path.replace(output_path)
+    finally:
+        for temp_path, _ in staged:
+            _remove_temp_file(temp_path)
+
+    paths = [output_path for output_path, _ in outputs]
     remove_chunked_files(base_path, keep=set(paths))
 
     if success_message:
@@ -98,6 +107,24 @@ def save_chunked_lines(
         print(success_message.format(count=len(items), files=len(paths), path=file_list))
 
     return paths
+
+
+def _stage_text(path: Path, text: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+    try:
+        temp_path.write_text(text, encoding="utf-8")
+    except BaseException:
+        _remove_temp_file(temp_path)
+        raise
+    return temp_path
+
+
+def _remove_temp_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def remove_chunked_files(base_path: Path, *, keep: set[Path] | None = None) -> None:

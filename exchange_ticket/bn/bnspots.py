@@ -1,80 +1,77 @@
-"""Generate a TradingView watchlist for Binance spot markets."""
+import requests
 
-if __package__ in {None, ""}:
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-from exchange_ticket.bn.base_asset_map import BASE_ASSET_MAP
-from exchange_ticket.bn.tradfi import is_spot_tradfi, update_tradfi_watchlist
-from exchange_ticket.http import default_client
-from exchange_ticket.utils import DEFAULT_OUTPUT_DIR, save_chunked_lines
+from exchange_ticket.bn.symbols import TRADINGVIEW_SYMBOL_MAP
+from shared.utils import DEFAULT_OUTPUT_DIR, remove_chunked_files, save_chunked_lines
 
 
 EXCHANGE_INFO_URL = "https://api.binance.com/api/v3/exchangeInfo"
-OUTPUT_DIR = DEFAULT_OUTPUT_DIR
 
 
-def mapped_symbol(symbol: str) -> str:
-    return BASE_ASSET_MAP.get(symbol, symbol)
+def generate_watchlists(tradfi_futures_base_assets):
+    if not tradfi_futures_base_assets:
+        print("无法获取 Binance TradFi 期货名单，跳过现货生成。")
+        return False
 
+    tradfi_spot_base_assets = {
+        f"{base_asset}B" for base_asset in tradfi_futures_base_assets
+    }
 
-def get_exchange_info() -> dict:
-    return default_client.get_json(EXCHANGE_INFO_URL, timeout=10)
+    try:
+        response = requests.get(EXCHANGE_INFO_URL, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("symbols"), list):
+            raise ValueError("Binance 现货响应格式错误")
+        symbols = payload["symbols"]
+        if not symbols:
+            raise ValueError("Binance 现货响应没有交易对")
+    except (requests.RequestException, ValueError) as error:
+        print(f"网络请求失败: {error}")
+        return False
 
+    spot_pairs = []
+    tradfi_spot_pairs = []
 
-def build_spot_pairs(data: dict) -> tuple[list[str], list[str]]:
-    """Split active USDT spot symbols into crypto and TradFi lists."""
-    spot_pairs: list[str] = []
-    tradfi_pairs: list[str] = []
-
-    for symbol_info in data.get("symbols", []):
-        if symbol_info.get("quoteAsset") != "USDT" or symbol_info.get("status") != "TRADING":
+    for item in symbols:
+        if not isinstance(item, dict):
+            continue
+        if item.get("status") != "TRADING" or item.get("quoteAsset") != "USDT":
             continue
 
-        symbol = symbol_info.get("symbol")
-        if not symbol:
+        symbol = item.get("symbol")
+        base_asset = item.get("baseAsset")
+        if not isinstance(symbol, str) or not symbol:
             continue
+        if not isinstance(base_asset, str) or not base_asset:
+            continue
+        symbol = TRADINGVIEW_SYMBOL_MAP.get(symbol, symbol)
+        pair = f"Binance:{symbol}"
 
-        pair = f"Binance:{mapped_symbol(symbol)}"
-        if is_spot_tradfi(symbol_info.get("baseAsset")):
-            tradfi_pairs.append(pair)
+        if base_asset in tradfi_spot_base_assets:
+            tradfi_spot_pairs.append(pair)
         else:
             spot_pairs.append(pair)
 
-    return spot_pairs, tradfi_pairs
+    if not spot_pairs or not tradfi_spot_pairs:
+        print("Binance 现货数据不完整，保留原有观察列表。")
+        return False
 
-
-def get_spot_pairs():
-    try:
-        data = get_exchange_info()
-    except Exception as e:
-        print(f"[!] 網路請求失敗: {e}")
-        return
-
-    spot_pairs, tradfi_pairs = build_spot_pairs(data)
-
-    spot_paths = save_chunked_lines(
+    save_chunked_lines(
         spot_pairs,
         "binance_usdt_pairs.txt",
-        folder=OUTPUT_DIR,
-        chunk_size=500,
-        empty_message="[-] 沒有找到交易對，或資料為空。",
-        success_message="成功將 {count} 個現貨交易對拆成 {files} 個檔案: {path}",
+        folder=DEFAULT_OUTPUT_DIR,
+        empty_message="没有找到 Binance 现货交易对。",
+        success_message="成功将 {count} 个现货交易对拆成 {files} 个文件: {path}",
     )
-    tradfi_paths = update_tradfi_watchlist(
-        tradfi_pairs,
-        market="spot",
-        folder=OUTPUT_DIR,
-        chunk_size=500,
+    save_chunked_lines(
+        tradfi_spot_pairs,
+        "binance_tradfi_spot_pairs.txt",
+        folder=DEFAULT_OUTPUT_DIR,
+        empty_message="没有找到 Binance TradFi 现货交易对。",
+        success_message="成功将 {count} 个 TradFi 现货交易对拆成 {files} 个文件: {path}",
     )
-    return [*spot_paths, *tradfi_paths]
 
-
-def main():
-    get_spot_pairs()
-
-
-if __name__ == "__main__":
-    main()
+    # Remove files generated before TradFi spot and futures were separated.
+    remove_chunked_files(DEFAULT_OUTPUT_DIR / "binance_tradfi_pairs.txt")
+    remove_chunked_files(DEFAULT_OUTPUT_DIR / "binance_tradifi_pairs.txt")
+    return True

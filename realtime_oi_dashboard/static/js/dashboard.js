@@ -113,34 +113,37 @@ elements.rankBody.addEventListener("click", event => {
 filterBar.render();
 sortableHeaders.render();
 priceSocket.connect();
-refreshOi({ showError: true });
-const refreshTimer = window.setInterval(() => refreshOi({ showError: false }), 10000);
+refreshOi();
+const refreshTimer = window.setInterval(refreshOi, 10000);
 window.addEventListener("beforeunload", () => {
   window.clearInterval(refreshTimer);
   priceSocket.close();
 });
 
-async function refreshOi({ showError }) {
+async function refreshOi() {
   try {
     const payload = await loadOiSnapshot();
-    rankingData.setRows(payload.rows || [], priceSocket.getPrices());
+    rankingData.setRows(payload.rows, priceSocket.getPrices());
     renderOiStatus(payload);
     renderStatCards(elements, rankingData.getStats());
     scheduleFullRender();
   } catch (error) {
-    if (!showError) return;
-    elements.statusTitle.textContent = "OI error";
+    elements.statusTitle.textContent = "OI 连接异常";
     elements.statusText.textContent = error.message;
   }
 }
 
 function renderOiStatus(payload) {
+  const loadedSymbols = payload.rows.length;
   elements.statusTitle.textContent = payload.error
-    ? "OI update error"
-    : payload.rows?.length ? "Live OI changes" : "Waiting for fresh OI";
-  const errorText = payload.recent_errors?.length ? ` · errors ${payload.recent_errors.length}` : "";
+    ? "OI 更新异常"
+    : loadedSymbols ? "实时 OI 变化" : "等待本次 OI 数据";
+  const errorText = payload.recent_errors?.length ? ` · 错误 ${payload.recent_errors.length}` : "";
+  const batchError = typeof payload.error === "string" && payload.error
+    ? ` · ${payload.error}`
+    : "";
   elements.statusText.textContent =
-    `${payload.saved_at || "no OI yet"} · batch ${payload.updated_symbols || 0}/${payload.total_symbols || 0}${errorText}`;
+    `${payload.saved_at || "尚无 OI"} · 已加载 ${loadedSymbols}/${payload.total_symbols || 0}${errorText}${batchError}`;
 }
 
 function scheduleFullRender() {
