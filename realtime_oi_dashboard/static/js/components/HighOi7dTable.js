@@ -10,14 +10,15 @@ import {
 } from "../utils/format.js";
 
 const EMPTY_MESSAGE = "暂无满足 7D 持仓 > 100% 且持仓价值 > $1000万 的币种。";
+const LOADING_MESSAGE = "正在获取本次启动后的 OI 数据。";
 
 export function createHighOi7dTable({ tbody }) {
   const rowsBySymbol = new Map();
 
-  function render(rows) {
+  function render(rows, hasSourceRows) {
     if (!rows.length) {
       rowsBySymbol.clear();
-      tbody.replaceChildren(createEmptyRow());
+      tbody.replaceChildren(createEmptyRow(hasSourceRows));
       return;
     }
 
@@ -81,12 +82,12 @@ export function createHighOi7dTable({ tbody }) {
     cells.valueCell.textContent = formatCurrency(row.currentOiValue);
   }
 
-  function createEmptyRow() {
+  function createEmptyRow(hasSourceRows) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 5;
     td.className = "empty";
-    td.textContent = EMPTY_MESSAGE;
+    td.textContent = hasSourceRows ? EMPTY_MESSAGE : LOADING_MESSAGE;
     tr.append(td);
     return tr;
   }

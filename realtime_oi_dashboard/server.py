@@ -25,18 +25,44 @@ PORT = 8777
 
 
 class DashboardHandler(DashboardRequestHandler):
-    poller = None
     index_file = INDEX_FILE
     static_dir = STATIC_DIR
 
-    def do_GET(self):
-        parsed = urlparse(self.path)
+    def do_GET(self) -> None:
+        self.serve_request()
+
+    def do_HEAD(self) -> None:
+        self.serve_request()
+
+    def serve_request(self) -> None:
+        try:
+            parsed = urlparse(self.path)
+        except ValueError:
+            self.send_error(400, "Invalid request target")
+            return
         if self.send_dashboard_asset(parsed.path):
             return
         if parsed.path == "/api/oi":
-            self.send_json(self.poller.get_state())
+            self.send_oi_state()
             return
         self.send_error(404)
+
+    def send_oi_state(self):
+        poller = getattr(self.server, "poller", None)
+        if poller is None:
+            self.send_json({"error": "OI poller unavailable"}, status=503)
+            return
+
+        poller_thread = getattr(self.server, "poller_thread", None)
+        if poller_thread is not None and not poller_thread.is_alive():
+            self.send_json({"error": "OI poller stopped"}, status=503)
+            return
+
+        try:
+            self.send_json(poller.get_state())
+        except Exception as exc:
+            print(f"{timestamp()} failed to serve OI state: {exc}")
+            self.send_json({"error": "OI state unavailable"}, status=503)
 
 
 def positive_int(value):
@@ -85,19 +111,22 @@ def parse_args(argv=None):
         dest="oi_history_cache_seconds",
         type=non_negative_float,
         default=300,
-        help="seconds to cache 24h/7d OI baselines; 0 disables the cache",
+        help=(
+            "maximum seconds to cache 24h/7d OI baselines; "
+            "source tolerance may expire sooner; 0 disables the cache"
+        ),
     )
     parser.add_argument(
         "--ticker-cache-seconds",
         type=non_negative_float,
         default=10,
-        help="seconds to cache futures 24h ticker",
+        help="seconds to cache futures 24h ticker; 0 disables the cache",
     )
     parser.add_argument(
         "--funding-cache-seconds",
         type=non_negative_float,
         default=3600,
-        help="fallback funding-rate cache duration",
+        help="fallback funding-rate cache duration; 0 disables the cache",
     )
     parser.add_argument(
         "--snapshot-save-interval",
@@ -119,37 +148,61 @@ def main(argv=None):
         funding_cache_seconds=args.funding_cache_seconds,
         snapshot_save_interval=args.snapshot_save_interval,
     )
-    DashboardHandler.poller = poller
-
     try:
         server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     except OSError as exc:
         print(f"无法启动面板: {exc}")
+        _close_poller_after_start_failure(poller)
         return 1
-    thread = threading.Thread(target=poller.run_forever, name="oi-poller", daemon=True)
-    thread.start()
 
-    print(f"Dashboard running at http://{args.host}:{args.port}")
-    print("Price uses Binance futures WebSocket in the browser.")
-    print(
-        f"OI updates {args.oi_batch_size} symbols every {args.oi_batch_delay} seconds "
-        f"with {args.oi_workers} workers."
-    )
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nDashboard stopped.")
-    finally:
-        poller.stop()
-        thread.join(timeout=15)
-        if thread.is_alive():
-            print(f"{timestamp()} OI poller did not stop within 15 seconds")
+    with server:
+        server.poller = poller
+        thread = threading.Thread(
+            target=poller.run_forever,
+            name="oi-poller",
+            daemon=True,
+        )
+        server.poller_thread = thread
         try:
-            poller.save_state(force=True)
-        except (OSError, TypeError, ValueError) as exc:
-            print(f"{timestamp()} failed to save final OI snapshot: {exc}")
-        server.server_close()
+            thread.start()
+        except RuntimeError as exc:
+            print(f"无法启动 OI 轮询: {exc}")
+            _close_poller_after_start_failure(poller)
+            return 1
+
+        try:
+            print(f"Dashboard running at http://{args.host}:{args.port}")
+            print("Price uses Binance futures WebSocket in the browser.")
+            print(
+                f"OI updates {args.oi_batch_size} symbols every "
+                f"{args.oi_batch_delay} seconds with {args.oi_workers} workers."
+            )
+            try:
+                server.serve_forever()
+            except KeyboardInterrupt:
+                print("\nDashboard stopped.")
+        finally:
+            _stop_poller(poller, thread)
     return 0
+
+
+def _close_poller_after_start_failure(poller):
+    try:
+        poller.close()
+    except Exception as exc:
+        print(f"{timestamp()} failed to close OI poller: {exc}")
+
+
+def _stop_poller(poller, thread):
+    poller.stop()
+    thread.join(timeout=15)
+    if thread.is_alive():
+        print(f"{timestamp()} OI poller did not stop within 15 seconds")
+        return
+    try:
+        poller.save_state(force=True)
+    except Exception as exc:
+        print(f"{timestamp()} failed to save final OI snapshot: {exc}")
 
 
 if __name__ == "__main__":

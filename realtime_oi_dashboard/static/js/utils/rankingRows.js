@@ -97,13 +97,35 @@ export function buildHighOi7dRows(rows) {
 }
 
 export function getHeatMax(rows) {
-  return {
-    fundingRatePercent: maxAbs(rows, "fundingRatePercent"),
-    priceChangePercent: maxAbs(rows, "priceChangePercent"),
-    changePercent: maxAbs(rows, "changePercent"),
-    oi24hChangePercent: maxAbs(rows, "oi24hChangePercent"),
-    oi7dChangePercent: maxAbs(rows, "oi7dChangePercent"),
+  const maximums = {
+    fundingRatePercent: 0,
+    priceChangePercent: 0,
+    changePercent: 0,
+    oi24hChangePercent: 0,
+    oi7dChangePercent: 0,
   };
+
+  for (const row of rows) {
+    maximums.fundingRatePercent = largerAbsolute(
+      maximums.fundingRatePercent,
+      row.fundingRatePercent,
+    );
+    maximums.priceChangePercent = largerAbsolute(
+      maximums.priceChangePercent,
+      row.priceChangePercent,
+    );
+    maximums.changePercent = largerAbsolute(maximums.changePercent, row.changePercent);
+    maximums.oi24hChangePercent = largerAbsolute(
+      maximums.oi24hChangePercent,
+      row.oi24hChangePercent,
+    );
+    maximums.oi7dChangePercent = largerAbsolute(
+      maximums.oi7dChangePercent,
+      row.oi7dChangePercent,
+    );
+  }
+
+  return maximums;
 }
 
 export function isPriceDrivenView(filters, sortState) {
@@ -112,6 +134,7 @@ export function isPriceDrivenView(filters, sortState) {
     || Number(filters.minVolume || 0) > 0;
 }
 
-function maxAbs(rows, key) {
-  return Math.max(...rows.map(row => Math.abs(row[key] || 0)), 0);
+function largerAbsolute(current, value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.max(current, Math.abs(number)) : current;
 }

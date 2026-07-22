@@ -12,8 +12,15 @@ from typing import Any
 class DashboardRequestHandler(BaseHTTPRequestHandler):
     """Serve one dashboard page, static assets, and JSON responses safely."""
 
+    protocol_version = "HTTP/1.1"
+    timeout = 30
     index_file: Path
     static_dir: Path
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        super().send_response(code, message)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
 
     def send_dashboard_asset(self, request_path: str) -> bool:
         """Serve the index or a static file and report whether it matched."""
@@ -27,8 +34,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
     def send_static(self, request_path: str) -> None:
         relative_path = request_path.removeprefix("/static/")
-        file_path = (self.static_dir / relative_path).resolve()
-        static_root = self.static_dir.resolve()
+        try:
+            file_path = (self.static_dir / relative_path).resolve()
+            static_root = self.static_dir.resolve()
+        except (OSError, RuntimeError, ValueError):
+            self.send_error(404)
+            return
 
         if not file_path.is_relative_to(static_root):
             self.send_error(404)
@@ -48,23 +59,37 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
-        self.send_response(200)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_body(body, content_type=content_type)
 
     def send_json(self, payload: Any, *, status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        self.wfile.write(body)
+        self._send_body(
+            body,
+            content_type="application/json; charset=utf-8",
+            status=status,
+        )
+
+    def _send_body(self, body: bytes, *, content_type: str, status: int = 200) -> None:
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except OSError:
+            self.close_connection = True
+
+    def send_error(
+        self,
+        code: int,
+        message: str | None = None,
+        explain: str | None = None,
+    ) -> None:
+        try:
+            super().send_error(code, message, explain)
+        except OSError:
+            self.close_connection = True
 
     def log_message(self, format: str, *args: object) -> None:
         return

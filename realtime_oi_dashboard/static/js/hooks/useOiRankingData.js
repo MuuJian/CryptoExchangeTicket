@@ -7,8 +7,15 @@ const OPTIONAL_NUMBER_FIELDS = [
   "oi24hChangePercent",
   "oi7dChangePercent",
 ];
+const LIVE_MARKET_FIELDS = [
+  "price",
+  "volume24h",
+  "priceChangePercent",
+  "currentOiValue",
+];
 
 export function useOiRankingData() {
+  const serverRowsBySymbol = new Map();
   const rowsBySymbol = new Map();
   let rows = [];
   let version = 0;
@@ -20,14 +27,18 @@ export function useOiRankingData() {
     for (const item of nextRows) {
       if (!isOiRow(item)) continue;
 
-      const row = { ...item };
+      const serverRow = { ...item };
+      const row = { ...serverRow };
       applyLivePriceToRow(row, priceMap.get(item.symbol));
+      serverRowsBySymbol.set(item.symbol, serverRow);
       rowsBySymbol.set(item.symbol, row);
       seen.add(item.symbol);
     }
 
     for (const symbol of rowsBySymbol.keys()) {
-      if (!seen.has(symbol)) rowsBySymbol.delete(symbol);
+      if (seen.has(symbol)) continue;
+      serverRowsBySymbol.delete(symbol);
+      rowsBySymbol.delete(symbol);
     }
 
     rows = [...rowsBySymbol.values()];
@@ -40,8 +51,14 @@ export function useOiRankingData() {
 
     for (const symbol of symbols) {
       const row = rowsBySymbol.get(symbol);
-      if (!row) continue;
-      if (applyLivePriceToRow(row, priceMap.get(symbol))) {
+      const serverRow = serverRowsBySymbol.get(symbol);
+      if (!row || !serverRow) continue;
+
+      const livePrice = priceMap.get(symbol);
+      const changed = livePrice
+        ? applyLivePriceToRow(row, livePrice)
+        : restoreServerMarketData(row, serverRow);
+      if (changed) {
         affectedSymbols.push(symbol);
       }
     }
@@ -71,9 +88,30 @@ export function useOiRankingData() {
   };
 }
 
-export async function loadOiSnapshot() {
+function restoreServerMarketData(row, serverRow) {
+  let changed = false;
+  for (const field of LIVE_MARKET_FIELDS) {
+    if (row[field] === serverRow[field]) continue;
+    row[field] = serverRow[field];
+    changed = true;
+  }
+  return changed;
+}
+
+export async function loadOiSnapshot({ signal } = {}) {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 8000);
+  let abortReason = null;
+  const abort = reason => {
+    abortReason ??= reason;
+    controller.abort();
+  };
+  const timeout = window.setTimeout(() => abort("timeout"), 8000);
+  const abortRequest = () => abort("cancelled");
+  if (signal?.aborted) {
+    abortRequest();
+  } else {
+    signal?.addEventListener("abort", abortRequest, { once: true });
+  }
   try {
     const response = await fetch("/api/oi", {
       cache: "no-store",
@@ -90,10 +128,15 @@ export async function loadOiSnapshot() {
     }
     return payload;
   } catch (error) {
-    if (error.name === "AbortError") throw new Error("OI 请求超时");
+    if (error?.name === "AbortError") {
+      throw new Error(
+        abortReason === "cancelled" ? "OI 请求已取消" : "OI 请求超时",
+      );
+    }
     throw error;
   } finally {
     window.clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortRequest);
   }
 }
 
@@ -139,17 +182,27 @@ function isFiniteNumber(value) {
 }
 
 function buildStats(rows) {
-  const rowsWith24hOi = rows.filter(row => row.oi24hChangePercent != null);
-  const byIncrease = rowsWith24hOi
-    .slice()
-    .sort((a, b) => (b.oi24hChangePercent || 0) - (a.oi24hChangePercent || 0));
-  const byDecrease = rowsWith24hOi
-    .slice()
-    .sort((a, b) => (a.oi24hChangePercent || 0) - (b.oi24hChangePercent || 0));
+  let changeCount = 0;
+  let topIncrease = null;
+  let topDecrease = null;
+
+  for (const row of rows) {
+    if (row.changePercent != null) changeCount += 1;
+
+    const change = row.oi24hChangePercent;
+    if (change > 0 && (!topIncrease || change > topIncrease.oi24hChangePercent)) {
+      topIncrease = row;
+    } else if (
+      change < 0
+      && (!topDecrease || change < topDecrease.oi24hChangePercent)
+    ) {
+      topDecrease = row;
+    }
+  }
 
   return {
-    changeCount: rows.filter(row => row.changePercent != null).length,
-    topIncrease: byIncrease[0] || null,
-    topDecrease: byDecrease[0] || null,
+    changeCount,
+    topIncrease,
+    topDecrease,
   };
 }

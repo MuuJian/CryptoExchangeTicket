@@ -82,6 +82,11 @@ export function updateRankingRow(tr, row, context) {
   cells.favoriteButton.dataset.favorite = row.symbol;
   cells.favoriteButton.classList.toggle("active", isFavorite);
   cells.favoriteButton.title = isFavorite ? "取消收藏" : "加入收藏";
+  cells.favoriteButton.setAttribute("aria-pressed", String(isFavorite));
+  cells.favoriteButton.setAttribute(
+    "aria-label",
+    `${isFavorite ? "取消收藏" : "加入收藏"} ${row.symbol}`,
+  );
 
   cells.symbolLink.href = binanceFuturesUrl(row.symbol);
   cells.symbolLink.textContent = row.symbol;

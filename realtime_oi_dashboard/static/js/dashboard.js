@@ -15,6 +15,9 @@ import {
   isPriceDrivenView,
 } from "./utils/rankingRows.js";
 
+const OI_ROWS_MAX_STALE_MS = 15 * 60 * 1000;
+const lifecycleController = new AbortController();
+
 const elements = {
   statusTitle: document.getElementById("statusTitle"),
   statusText: document.getElementById("statusText"),
@@ -48,6 +51,10 @@ let heatMax = getHeatMax([]);
 let fullRenderFrame = 0;
 let patchFrame = 0;
 let highOi7dFrame = 0;
+let refreshTimer = null;
+let oiRefreshInFlight = false;
+let lastOiResponseAt = null;
+let disposed = false;
 let pendingPatchSymbols = new Set();
 let visibleRowsCache = {
   deps: "",
@@ -78,9 +85,11 @@ const sortableHeaders = createSortableHeaders({
 
 const priceSocket = useBinancePriceSocket({
   onStatusChange(value) {
+    if (disposed) return;
     renderWsState(elements.wsState, value);
   },
   onPricesChange(changedSymbols, priceMap) {
+    if (disposed) return;
     const affectedSymbols = rankingData.applyPriceUpdates(changedSymbols, priceMap);
     if (!affectedSymbols.length) return;
 
@@ -89,7 +98,12 @@ const priceSocket = useBinancePriceSocket({
       return;
     }
 
-    scheduleRowPatch(affectedSymbols);
+    if (fullRenderFrame) return;
+
+    const symbolsToPatch = syncLivePriceHeatScale()
+      ? visibleRowsCache.rows.map(row => row.symbol)
+      : affectedSymbols;
+    scheduleRowPatch(symbolsToPatch);
     scheduleHighOi7dRender();
   },
 });
@@ -112,24 +126,84 @@ elements.rankBody.addEventListener("click", event => {
 
 filterBar.render();
 sortableHeaders.render();
-priceSocket.connect();
-refreshOi();
-const refreshTimer = window.setInterval(refreshOi, 10000);
-window.addEventListener("beforeunload", () => {
-  window.clearInterval(refreshTimer);
+scheduleFullRender();
+document.addEventListener("visibilitychange", syncLiveUpdates);
+window.addEventListener("pagehide", handlePageHide);
+window.addEventListener("pageshow", handlePageShow);
+syncLiveUpdates();
+
+function dispose() {
+  if (disposed) return;
+  disposed = true;
+  document.removeEventListener("visibilitychange", syncLiveUpdates);
+  window.removeEventListener("pagehide", handlePageHide);
+  window.removeEventListener("pageshow", handlePageShow);
+  lifecycleController.abort();
+  stopLiveUpdates();
+  cancelScheduledRenders();
+}
+
+function syncLiveUpdates() {
+  if (disposed) return;
+  if (document.hidden) {
+    stopLiveUpdates();
+    renderWsState(elements.wsState, "暂停");
+    return;
+  }
+
+  startLiveUpdates();
+}
+
+function startLiveUpdates() {
+  if (disposed || document.hidden || refreshTimer !== null) return;
+  priceSocket.connect();
+  refreshOi();
+  refreshTimer = window.setInterval(refreshOi, 10000);
+}
+
+function stopLiveUpdates() {
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer);
+    refreshTimer = null;
+  }
   priceSocket.close();
-});
+}
+
+function handlePageHide(event) {
+  if (event.persisted) {
+    stopLiveUpdates();
+    return;
+  }
+  dispose();
+}
+
+function handlePageShow(event) {
+  if (event.persisted) syncLiveUpdates();
+}
 
 async function refreshOi() {
+  if (oiRefreshInFlight || disposed) return;
+  oiRefreshInFlight = true;
   try {
-    const payload = await loadOiSnapshot();
+    const payload = await loadOiSnapshot({ signal: lifecycleController.signal });
+    if (disposed) return;
+    lastOiResponseAt = responseClock();
     rankingData.setRows(payload.rows, priceSocket.getPrices());
     renderOiStatus(payload);
     renderStatCards(elements, rankingData.getStats());
     scheduleFullRender();
   } catch (error) {
+    if (disposed) return;
+    if (lastOiResponseAt && isResponseStale(lastOiResponseAt)) {
+      lastOiResponseAt = null;
+      rankingData.setRows([], priceSocket.getPrices());
+      renderStatCards(elements, rankingData.getStats());
+      scheduleFullRender();
+    }
     elements.statusTitle.textContent = "OI 连接异常";
     elements.statusText.textContent = error.message;
+  } finally {
+    oiRefreshInFlight = false;
   }
 }
 
@@ -138,12 +212,18 @@ function renderOiStatus(payload) {
   elements.statusTitle.textContent = payload.error
     ? "OI 更新异常"
     : loadedSymbols ? "实时 OI 变化" : "等待本次 OI 数据";
-  const errorText = payload.recent_errors?.length ? ` · 错误 ${payload.recent_errors.length}` : "";
+  const errorCount = payload.recent_errors?.length || 0;
+  const errorText = errorCount ? ` · 错误 ${errorCount}` : "";
   const batchError = typeof payload.error === "string" && payload.error
     ? ` · ${payload.error}`
     : "";
-  elements.statusText.textContent =
-    `${payload.saved_at || "尚无 OI"} · 已加载 ${loadedSymbols}/${payload.total_symbols || 0}${errorText}${batchError}`;
+  const savedAt = payload.saved_at || "尚无 OI";
+  const totalSymbols = payload.total_symbols || 0;
+  elements.statusText.textContent = [
+    `${savedAt} · 已加载 ${loadedSymbols}/${totalSymbols}`,
+    errorText,
+    batchError,
+  ].join("");
 }
 
 function scheduleFullRender() {
@@ -205,8 +285,17 @@ function getVisibleRows() {
 function getRowRenderContext() {
   return {
     favorites: favorites.getSet(),
+    hasSourceRows: rankingData.getRows().length > 0,
     heatMax,
   };
+}
+
+function syncLivePriceHeatScale() {
+  const nextHeatMax = getHeatMax(visibleRowsCache.rows);
+  if (nextHeatMax.priceChangePercent === heatMax.priceChangePercent) return false;
+
+  heatMax = nextHeatMax;
+  return true;
 }
 
 function scheduleHighOi7dRender() {
@@ -218,7 +307,8 @@ function scheduleHighOi7dRender() {
 }
 
 function renderHighOi7d() {
-  highOi7dTable.render(buildHighOi7dRows(rankingData.getRows()));
+  const rows = rankingData.getRows();
+  highOi7dTable.render(buildHighOi7dRows(rows), rows.length > 0);
 }
 
 function cancelPendingPatch() {
@@ -231,4 +321,24 @@ function cancelPendingPatch() {
     highOi7dFrame = 0;
   }
   pendingPatchSymbols.clear();
+}
+
+function cancelScheduledRenders() {
+  if (fullRenderFrame) {
+    window.cancelAnimationFrame(fullRenderFrame);
+    fullRenderFrame = 0;
+  }
+  cancelPendingPatch();
+}
+
+function responseClock() {
+  return {
+    wall: Date.now(),
+    monotonic: performance.now(),
+  };
+}
+
+function isResponseStale(previous) {
+  return Date.now() - previous.wall > OI_ROWS_MAX_STALE_MS
+    || performance.now() - previous.monotonic > OI_ROWS_MAX_STALE_MS;
 }

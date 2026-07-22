@@ -19,7 +19,7 @@ python3 -m venv .venv
 .venv/bin/python main.py
 ```
 
-结果写入 `exchange_ticket/ticket/`，单个文件最多 500 行；重复项会自动去除，旧的多余分片会自动清理：
+结果写入 `exchange_ticket/ticket/`，单个文件最多 500 行；重复项会自动去除，名单按交易对名称稳定排序，旧的多余分片会自动清理：
 
 - `binance_usdt_pairs.txt`：加密货币现货
 - `binance_futures_pairs.txt`：加密货币永续合约
@@ -27,7 +27,11 @@ python3 -m venv .venv
 - `binance_tradfi_futures_pairs.txt`：TradFi 永续合约
 
 TradFi 现货会根据当前 TradFi 期货的基础资产加 `B` 后，与实际在交易的现货自动匹配，无需维护手工名单。
-请求失败、返回空名单或缺少任一市场分类时，程序会退出，对应的旧文件不会被空结果覆盖。
+现货请求和本地解析都会限定 `SPOT` 权限、`TRADING` 状态及 `isSpotTradingAllowed=true`，不会把仅保证金或杠杆权限的交易对混入现货文件。
+观察列表请求遇到瞬时网络错误、限频或常见服务端错误时最多尝试 3 次，请求流程结束后会关闭独立会话。
+请求失败、返回不足 10 项或缺少任一市场分类时，程序会保留全部旧文件。旧文件中超过 20% 的条目消失时，第一次运行也会保留旧文件并记录隐藏确认指纹；只有下一次独立运行得到完全相同的四份完整名单才会接受变更，少于 10 项的结果永远不能通过确认。新增条目不能掩盖大规模替换。
+现货和期货的四份名单会在全部请求与校验成功后一次提交；写入或旧分片清理中途失败时，会恢复提交前的全部文件，避免出现新期货与旧现货混用。并发写入会在进程内串行；macOS/Linux 上的多个生成进程也会通过输出目录中的隐藏文件锁串行提交。20% 缩水检查会在取得锁后针对最新文件再次执行，过时的请求结果不能绕过缩水保护。
+已有名单、分片、锁和确认指纹必须是普通文件；符号链接、目录、FIFO 等异常类型会被拒绝且不会被替换。
 
 ## 实时 OI 面板
 
@@ -51,7 +55,7 @@ TradFi 现货会根据当前 TradFi 期货的基础资产加 `B` 后，与实际
 
 ## 前端语法检查
 
-需要 Node.js；同时检查 JavaScript 语法、相对导入、入口可达性以及页面 ID：
+需要 Node.js；同时检查 JavaScript 语法、相对导入、入口可达性、样式入口以及页面 ID：
 
 ```bash
 node realtime_oi_dashboard/scripts/check-static-js.mjs
@@ -62,7 +66,8 @@ node realtime_oi_dashboard/scripts/check-static-js.mjs
 ```text
 exchange_ticket/          Binance 观察列表生成器
 realtime_oi_dashboard/    实时价格和 OI 面板
-shared/http.py            OI 面板共用的 JSON 请求、重试和线程会话
+shared/binance.py         Binance 符号校验和 TradingView 别名
+shared/http.py            Binance JSON 请求、重试和线程会话
 shared/utils.py           名单写入、数值解析和快照原子写入
 shared/web.py             OI 面板的静态文件和 JSON 响应处理
 ```

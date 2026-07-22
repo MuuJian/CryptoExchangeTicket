@@ -1,8 +1,20 @@
+import {
+  mergeTickerUpdate,
+  parseUsdMMarketTickerMessage,
+} from "../utils/binanceTicker.js";
+
+const TICKER_STALE_TIMEOUT_MS = 15000;
+const RECONNECT_MAX_DELAY_MS = 30000;
+const RECONNECT_ATTEMPT_CAP = 6;
+const TICKER_STREAM_URL =
+  "wss://fstream.binance.com/market/stream?streams=!ticker@arr";
+
 export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
   const priceMap = new Map();
   const pendingSymbols = new Set();
   let socket = null;
   let reconnectTimer = 0;
+  let staleTimer = 0;
   let flushFrame = 0;
   let stopped = false;
   let reconnectAttempts = 0;
@@ -11,18 +23,18 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
     stopped = false;
     window.clearTimeout(reconnectTimer);
     reconnectTimer = 0;
+    clearStaleTimer();
 
     const previousSocket = socket;
     socket = null;
-    clearLivePrices();
     if (previousSocket && previousSocket.readyState < WebSocket.CLOSING) {
       previousSocket.close();
     }
+    clearLivePricesAndNotify();
 
-    const url = "wss://fstream.binance.com/market/stream?streams=!ticker@arr";
     let nextSocket;
     try {
-      nextSocket = new WebSocket(url);
+      nextSocket = new WebSocket(TICKER_STREAM_URL);
     } catch {
       onStatusChange("异常");
       scheduleReconnect();
@@ -34,54 +46,29 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
     nextSocket.onopen = () => {
       if (socket !== nextSocket || stopped) return;
       onStatusChange("实时");
+      armStaleTimer(nextSocket);
     };
 
     nextSocket.onmessage = event => {
       if (socket !== nextSocket || stopped) return;
 
-      let payload;
-      try {
-        payload = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      if (!payload || typeof payload !== "object" || !Array.isArray(payload.data)) return;
+      const updates = parseUsdMMarketTickerMessage(event.data);
+      if (!updates.length) return;
       reconnectAttempts = 0;
+      armStaleTimer(nextSocket);
 
-      const list = payload.data;
-      for (const item of list) {
-        if (
-          !item
-          || typeof item.s !== "string"
-          || !item.s.trim()
-          || item.s !== item.s.trim()
-          || item.st !== 1
-        ) continue;
-
-        const price = finiteNumber(item.c);
-        if (price == null || price <= 0) continue;
-
-        const volume24h = finiteNumber(item.q);
-        const priceChangePercent = finiteNumber(item.P);
-        const next = {
-          price,
-          volume24h: volume24h != null && volume24h >= 0
-            ? volume24h
-            : undefined,
-          priceChangePercent: priceChangePercent != null
-            ? priceChangePercent
-            : undefined,
-        };
-        const prev = priceMap.get(item.s);
+      for (const { symbol, ticker } of updates) {
+        const prev = priceMap.get(symbol);
+        const nextTicker = mergeTickerUpdate(prev, ticker);
 
         if (
           !prev
-          || prev.price !== next.price
-          || prev.volume24h !== next.volume24h
-          || prev.priceChangePercent !== next.priceChangePercent
+          || prev.price !== nextTicker.price
+          || prev.volume24h !== nextTicker.volume24h
+          || prev.priceChangePercent !== nextTicker.priceChangePercent
         ) {
-          priceMap.set(item.s, next);
-          pendingSymbols.add(item.s);
+          priceMap.set(symbol, nextTicker);
+          pendingSymbols.add(symbol);
         }
       }
 
@@ -91,9 +78,12 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
     nextSocket.onclose = () => {
       if (socket !== nextSocket) return;
       socket = null;
-      clearLivePrices();
-      if (stopped) return;
-      scheduleReconnect();
+      clearStaleTimer();
+      try {
+        clearLivePricesAndNotify();
+      } finally {
+        if (!stopped) scheduleReconnect();
+      }
     };
 
     nextSocket.onerror = () => {
@@ -106,12 +96,31 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
   function scheduleReconnect() {
     if (stopped || reconnectTimer) return;
     onStatusChange("重连中");
-    reconnectAttempts += 1;
-    const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 30000);
+    reconnectAttempts = Math.min(reconnectAttempts + 1, RECONNECT_ATTEMPT_CAP);
+    const delay = Math.min(
+      1000 * 2 ** (reconnectAttempts - 1),
+      RECONNECT_MAX_DELAY_MS,
+    );
     reconnectTimer = window.setTimeout(() => {
       reconnectTimer = 0;
       connect();
     }, delay);
+  }
+
+  function armStaleTimer(currentSocket) {
+    clearStaleTimer();
+    staleTimer = window.setTimeout(() => {
+      staleTimer = 0;
+      if (socket !== currentSocket || stopped) return;
+      onStatusChange("异常");
+      currentSocket.close();
+    }, TICKER_STALE_TIMEOUT_MS);
+  }
+
+  function clearStaleTimer() {
+    if (!staleTimer) return;
+    window.clearTimeout(staleTimer);
+    staleTimer = 0;
   }
 
   function scheduleFlush() {
@@ -130,12 +139,22 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
     stopped = true;
     window.clearTimeout(reconnectTimer);
     reconnectTimer = 0;
+    clearStaleTimer();
+    reconnectAttempts = 0;
 
     const currentSocket = socket;
     socket = null;
-    clearLivePrices();
     if (currentSocket && currentSocket.readyState < WebSocket.CLOSING) {
       currentSocket.close();
+    }
+    clearLivePricesAndNotify();
+  }
+
+  function clearLivePricesAndNotify() {
+    const changedSymbols = new Set(priceMap.keys());
+    clearLivePrices();
+    if (changedSymbols.size) {
+      onPricesChange(changedSymbols, priceMap);
     }
   }
 
@@ -155,13 +174,4 @@ export function useBinancePriceSocket({ onStatusChange, onPricesChange }) {
       return priceMap;
     },
   };
-}
-
-function finiteNumber(value) {
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value !== "string" || !value.trim()) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
 }

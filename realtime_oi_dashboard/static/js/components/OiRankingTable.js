@@ -1,6 +1,8 @@
 import { createRankingRow, updateRankingRow } from "./OiRankingRow.js";
 
-const EMPTY_MESSAGE = "正在获取本次启动后的 OI 数据，结果会按批次逐步出现。";
+const LOADING_MESSAGE =
+  "正在获取本次启动后的 OI 数据，结果会按批次逐步出现。";
+const FILTERED_EMPTY_MESSAGE = "暂无符合当前筛选条件的币种。";
 
 export function createOiRankingTable({ tbody, getRowBySymbol }) {
   const rowsBySymbol = new Map();
@@ -12,7 +14,7 @@ export function createOiRankingTable({ tbody, getRowBySymbol }) {
     if (!rows.length) {
       rowsBySymbol.clear();
       tbody.textContent = "";
-      tbody.append(createEmptyRow());
+      tbody.append(createEmptyRow(context.hasSourceRows));
       return;
     }
 
@@ -54,12 +56,12 @@ export function createOiRankingTable({ tbody, getRowBySymbol }) {
     }
   }
 
-  function createEmptyRow() {
+  function createEmptyRow(hasSourceRows) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 10;
     td.className = "empty";
-    td.textContent = EMPTY_MESSAGE;
+    td.textContent = hasSourceRows ? FILTERED_EMPTY_MESSAGE : LOADING_MESSAGE;
     tr.append(td);
     return tr;
   }

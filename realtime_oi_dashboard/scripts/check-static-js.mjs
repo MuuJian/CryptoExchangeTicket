@@ -2,6 +2,22 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import vm from "node:vm";
+
+if (typeof vm.SourceTextModule !== "function") {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--no-warnings",
+      "--experimental-vm-modules",
+      fileURLToPath(import.meta.url),
+      ...process.argv.slice(2),
+    ],
+    { stdio: "inherit" },
+  );
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const roots = [join(packageRoot, "static/js")];
@@ -9,17 +25,20 @@ const files = roots.flatMap(collectJavaScriptFiles);
 const importsByFile = new Map();
 
 for (const file of files) {
-  const result = spawnSync(process.execPath, ["--check", file], { stdio: "inherit" });
-  if (result.status !== 0) process.exit(result.status || 1);
   importsByFile.set(file, checkRelativeImports(file));
 }
 
 const htmlPath = join(packageRoot, "index.html");
 const entryPath = join(packageRoot, "static/js/dashboard.js");
+const stylesheetPath = join(packageRoot, "static/css/dashboard.css");
 checkIndexEntry(htmlPath, '<script type="module" src="/static/js/dashboard.js"></script>');
+checkIndexEntry(htmlPath, '<link rel="stylesheet" href="/static/css/dashboard.css">');
+if (!existsSync(stylesheetPath)) {
+  throw new Error(`Missing dashboard stylesheet: ${stylesheetPath}`);
+}
 checkReachableModules(entryPath, files, importsByFile);
 checkDomIds(htmlPath, entryPath);
-console.log(`Checked ${files.length} reachable dashboard JavaScript files.`);
+console.log(`Checked ${files.length} reachable dashboard JavaScript files and stylesheet entry.`);
 
 function collectJavaScriptFiles(root) {
   return readdirSync(root, { withFileTypes: true }).flatMap(entry => {
@@ -31,14 +50,20 @@ function collectJavaScriptFiles(root) {
 
 function checkRelativeImports(file) {
   const source = readFileSync(file, "utf8");
-  const importPattern = /import\s+(?:[^"']+\s+from\s+)?["'](\.[^"']+)["']/g;
+  const module = new vm.SourceTextModule(source, { identifier: file });
+  const specifiers = module.moduleRequests
+    ? module.moduleRequests.map(request => request.specifier)
+    : module.dependencySpecifiers;
   const targets = [];
-  let match;
 
-  while ((match = importPattern.exec(source))) {
-    const target = resolve(dirname(file), match[1]);
+  for (const specifier of specifiers) {
+    if (!specifier.startsWith(".")) {
+      throw new Error(`Dashboard import must be relative in ${file}: ${specifier}`);
+    }
+
+    const target = resolve(dirname(file), specifier);
     if (!existsSync(target)) {
-      throw new Error(`Missing import target in ${file}: ${match[1]}`);
+      throw new Error(`Missing import target in ${file}: ${specifier}`);
     }
     targets.push(target);
   }
@@ -64,14 +89,24 @@ function checkReachableModules(entryPath, files, importsByFile) {
 
     reachable.add(file);
     for (const target of importsByFile.get(file) || []) {
-      if (knownFiles.has(target)) pending.push(target);
+      if (!knownFiles.has(target)) {
+        const importer = relative(packageRoot, file);
+        const imported = relative(packageRoot, target);
+        throw new Error(
+          `Import target is not a dashboard JavaScript module in ${importer}: ${imported}`,
+        );
+      }
+      pending.push(target);
     }
   }
 
   const unused = files.filter(file => !reachable.has(file));
   if (unused.length) {
+    const unusedPaths = unused
+      .map(file => relative(packageRoot, file))
+      .join(", ");
     throw new Error(
-      `Unreachable dashboard modules: ${unused.map(file => relative(packageRoot, file)).join(", ")}`,
+      `Unreachable dashboard modules: ${unusedPaths}`,
     );
   }
 }

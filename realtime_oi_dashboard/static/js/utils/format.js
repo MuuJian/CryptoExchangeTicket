@@ -30,13 +30,15 @@ export function formatFundingRate(value) {
 export function signClass(value) {
   const number = finiteNumber(value);
   if (number == null) return "neutral";
-  return number >= 0 ? "pos" : "neg";
+  if (number > 0) return "pos";
+  if (number < 0) return "neg";
+  return "neutral";
 }
 
 export function heatStyle(value, max) {
   const number = finiteNumber(value);
   const maximum = finiteNumber(max);
-  if (number == null || maximum == null || maximum <= 0) return "";
+  if (number == null || number === 0 || maximum == null || maximum <= 0) return "";
   const ratio = Math.min(Math.abs(number) / maximum, 1);
   const alpha = 0.08 + ratio * 0.22;
   const color = number >= 0 ? "var(--green)" : "var(--red)";
@@ -59,7 +61,8 @@ const TRADINGVIEW_SYMBOL_MAP = {
 
 export function tradingViewUrl(symbol) {
   const tradingViewSymbol = TRADINGVIEW_SYMBOL_MAP[symbol] || symbol;
-  return `https://www.tradingview.com/chart/n6rCV2e0/?symbol=BINANCE%3A${encodeURIComponent(tradingViewSymbol)}.P`;
+  const encodedSymbol = encodeURIComponent(tradingViewSymbol);
+  return `https://www.tradingview.com/chart/n6rCV2e0/?symbol=BINANCE%3A${encodedSymbol}.P`;
 }
 
 export function binanceFuturesUrl(symbol) {
